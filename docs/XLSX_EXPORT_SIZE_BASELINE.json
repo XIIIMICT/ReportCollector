@@ -1,0 +1,4953 @@
+{
+  "environment": {
+    "commit": "e6285840c99541c53820feeaea7e08610548fe67",
+    "python": "3.15.0 (main, Oct 14 2026, 01:12:50) [MSC v.1951 64 bit (AMD64)]",
+    "executable": "D:\\Work\\ReportCollector\\back\\.venv\\Scripts\\python.exe",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "os_name": "nt",
+    "openpyxl": "3.1.5",
+    "zlib": "1.3.1.zlib-ng",
+    "zip64_limit": 4294967295,
+    "zip_compression": "zipfile.ZIP_DEFLATED, compresslevel=1 (both real writers)",
+    "pythonhashseed": null,
+    "fixtures": "deterministic synthetic rows only; no database, no production data"
+  },
+  "method": {
+    "timed_renders": 3,
+    "memory_render": 1,
+    "memory_metric": "tracemalloc peak (Python heap), OS peak working set as monotonic proxy",
+    "compression_ratio": "uncompressed bytes / compressed bytes",
+    "inspection": "zipfile metadata + ElementTree XML + raw-sheet regex byte profile"
+  },
+  "workloads": [
+    {
+      "workload": {
+        "id": "plan_small_values",
+        "family": "plan",
+        "rows": 20,
+        "profile": "typical",
+        "values_only": true,
+        "block": null,
+        "note": "fixed-overhead probe"
+      },
+      "final_bytes": {
+        "n": 3,
+        "median": 57621,
+        "min": 57621,
+        "max": 57621
+      },
+      "wall_seconds": {
+        "n": 3,
+        "median": 0.005251,
+        "min": 0.005109200021252036,
+        "max": 0.005981000140309334
+      },
+      "peak_python_heap_bytes": 900516,
+      "os_peak_working_set_before": 82866176,
+      "os_peak_working_set_after": 83668992,
+      "rows": 33,
+      "columns": 217,
+      "non_empty_cells": 4905,
+      "cells_serialized": 7161,
+      "sheet_count": 1,
+      "formula_count": 0,
+      "shared_strings": {
+        "present": false,
+        "items": 0,
+        "characters": 0
+      },
+      "style_records": {
+        "numFmts": 3,
+        "fonts": 2,
+        "fills": 1,
+        "borders": 2,
+        "cellStyleXfs": 1,
+        "cellXfs": 10,
+        "cellStyles": 1,
+        "duplicate_exact_xfs": 2,
+        "duplicate_near_identical_xfs": 2
+      },
+      "inspection": {
+        "final_bytes": 57621,
+        "zip": {
+          "entry_count": 6,
+          "compressed_bytes_sum": 56831,
+          "uncompressed_bytes_sum": 277520,
+          "compression_ratio": 4.8833,
+          "entries": [
+            {
+              "name": "xl/worksheets/sheet1.xml",
+              "compressed_bytes": 55138,
+              "uncompressed_bytes": 273835,
+              "ratio": 4.9664,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/styles.xml",
+              "compressed_bytes": 674,
+              "uncompressed_bytes": 1956,
+              "ratio": 2.9021,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "[Content_Types].xml",
+              "compressed_bytes": 325,
+              "uncompressed_bytes": 680,
+              "ratio": 2.0923,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/workbook.xml",
+              "compressed_bytes": 263,
+              "uncompressed_bytes": 329,
+              "ratio": 1.251,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/_rels/workbook.xml.rels",
+              "compressed_bytes": 225,
+              "uncompressed_bytes": 424,
+              "ratio": 1.8844,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "_rels/.rels",
+              "compressed_bytes": 206,
+              "uncompressed_bytes": 296,
+              "ratio": 1.4369,
+              "compression_method": 8,
+              "flag_bits": 8
+            }
+          ],
+          "categories": {
+            "other": {
+              "compressed_bytes": 756,
+              "uncompressed_bytes": 1400,
+              "parts": 3
+            },
+            "workbook": {
+              "compressed_bytes": 263,
+              "uncompressed_bytes": 329,
+              "parts": 1
+            },
+            "styles": {
+              "compressed_bytes": 674,
+              "uncompressed_bytes": 1956,
+              "parts": 1
+            },
+            "worksheets": {
+              "compressed_bytes": 55138,
+              "uncompressed_bytes": 273835,
+              "parts": 1
+            }
+          }
+        },
+        "sheets": {
+          "xl/worksheets/sheet1.xml": {
+            "part": "xl/worksheets/sheet1.xml",
+            "rows_serialized": 33,
+            "data_rows": 20,
+            "header_or_aggregate_rows": 13,
+            "cells_serialized": 7161,
+            "non_empty_cells": 4905,
+            "styled_empty_cells": 2256,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "styled_empty": 2256,
+              "inline_string": 1384,
+              "number_or_serial": 3521
+            },
+            "formula_count": 0,
+            "inline_text_characters": 13874,
+            "style_id_counts": {
+              "3": 3360,
+              "1": 2603,
+              "0": 880,
+              "5": 217,
+              "2": 100,
+              "7": 1
+            },
+            "distinct_style_ids_used": 6,
+            "dimension_ref": null,
+            "dimension_end_row": 33,
+            "actual_last_row": 33,
+            "dimension_end_column_index": 217,
+            "actual_last_column_index": 217,
+            "dimension_inflated": false,
+            "column_definitions": 217,
+            "merge_range_count": 475,
+            "validation_count": 0,
+            "frozen_pane": {
+              "xSplit": "1",
+              "ySplit": "13",
+              "topLeftCell": "B14"
+            },
+            "byte_profile": {
+              "total": 273835,
+              "prefix_total": 12064,
+              "column_definitions": 11727,
+              "header_and_aggregate_rows": 78578,
+              "data_rows_total": 170202,
+              "data_cell_value_content": 68682,
+              "data_cell_wrapper_overhead": 101160,
+              "data_row_wrapper_overhead": 360,
+              "tail_total": 12991,
+              "merge_cells_block": 12967,
+              "validations_block": 0,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 55138
+          }
+        },
+        "styles": {
+          "numFmts": 3,
+          "fonts": 2,
+          "fills": 1,
+          "borders": 2,
+          "cellStyleXfs": 1,
+          "cellXfs": 10,
+          "cellStyles": 1,
+          "duplicate_exact_xfs": 2,
+          "duplicate_near_identical_xfs": 2
+        },
+        "shared_strings": {
+          "present": false,
+          "items": 0,
+          "characters": 0
+        },
+        "formula_count": 0,
+        "ranked_contributors": [
+          {
+            "contributor": "sheet cell XML wrappers (refs, styles, tags)",
+            "uncompressed_bytes": 101160,
+            "estimated_compressed_bytes": 20369.1,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet header/aggregate rows",
+            "uncompressed_bytes": 78578,
+            "estimated_compressed_bytes": 15822.1,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet data values (<v>/<f>/<is> content)",
+            "uncompressed_bytes": 68682,
+            "estimated_compressed_bytes": 13829.5,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet prefix/cols/tail (merges, validations)",
+            "uncompressed_bytes": 25055,
+            "estimated_compressed_bytes": 5044.9,
+            "estimated": true
+          },
+          {
+            "contributor": "xl/styles.xml",
+            "uncompressed_bytes": 1956,
+            "estimated_compressed_bytes": 674,
+            "estimated": true
+          },
+          {
+            "contributor": "other package parts",
+            "uncompressed_bytes": 1729,
+            "estimated_compressed_bytes": null,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet row wrappers",
+            "uncompressed_bytes": 360,
+            "estimated_compressed_bytes": 72.5,
+            "estimated": true
+          }
+        ]
+      }
+    },
+    {
+      "workload": {
+        "id": "plan_small_formulas",
+        "family": "plan",
+        "rows": 20,
+        "profile": "typical",
+        "values_only": false,
+        "block": null,
+        "note": "fixed-overhead probe, live formulas"
+      },
+      "final_bytes": {
+        "n": 3,
+        "median": 80582,
+        "min": 80582,
+        "max": 80582
+      },
+      "wall_seconds": {
+        "n": 3,
+        "median": 0.006887,
+        "min": 0.005831900052726269,
+        "max": 0.008373700082302094
+      },
+      "peak_python_heap_bytes": 933768,
+      "os_peak_working_set_before": 89034752,
+      "os_peak_working_set_after": 89034752,
+      "rows": 33,
+      "columns": 217,
+      "non_empty_cells": 4905,
+      "cells_serialized": 7161,
+      "sheet_count": 1,
+      "formula_count": 2661,
+      "shared_strings": {
+        "present": false,
+        "items": 0,
+        "characters": 0
+      },
+      "style_records": {
+        "numFmts": 3,
+        "fonts": 2,
+        "fills": 1,
+        "borders": 2,
+        "cellStyleXfs": 1,
+        "cellXfs": 10,
+        "cellStyles": 1,
+        "duplicate_exact_xfs": 2,
+        "duplicate_near_identical_xfs": 2
+      },
+      "inspection": {
+        "final_bytes": 80582,
+        "zip": {
+          "entry_count": 6,
+          "compressed_bytes_sum": 79792,
+          "uncompressed_bytes_sum": 347319,
+          "compression_ratio": 4.3528,
+          "entries": [
+            {
+              "name": "xl/worksheets/sheet1.xml",
+              "compressed_bytes": 78099,
+              "uncompressed_bytes": 343634,
+              "ratio": 4.4,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/styles.xml",
+              "compressed_bytes": 674,
+              "uncompressed_bytes": 1956,
+              "ratio": 2.9021,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "[Content_Types].xml",
+              "compressed_bytes": 325,
+              "uncompressed_bytes": 680,
+              "ratio": 2.0923,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/workbook.xml",
+              "compressed_bytes": 263,
+              "uncompressed_bytes": 329,
+              "ratio": 1.251,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/_rels/workbook.xml.rels",
+              "compressed_bytes": 225,
+              "uncompressed_bytes": 424,
+              "ratio": 1.8844,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "_rels/.rels",
+              "compressed_bytes": 206,
+              "uncompressed_bytes": 296,
+              "ratio": 1.4369,
+              "compression_method": 8,
+              "flag_bits": 8
+            }
+          ],
+          "categories": {
+            "other": {
+              "compressed_bytes": 756,
+              "uncompressed_bytes": 1400,
+              "parts": 3
+            },
+            "workbook": {
+              "compressed_bytes": 263,
+              "uncompressed_bytes": 329,
+              "parts": 1
+            },
+            "styles": {
+              "compressed_bytes": 674,
+              "uncompressed_bytes": 1956,
+              "parts": 1
+            },
+            "worksheets": {
+              "compressed_bytes": 78099,
+              "uncompressed_bytes": 343634,
+              "parts": 1
+            }
+          }
+        },
+        "sheets": {
+          "xl/worksheets/sheet1.xml": {
+            "part": "xl/worksheets/sheet1.xml",
+            "rows_serialized": 33,
+            "data_rows": 20,
+            "header_or_aggregate_rows": 13,
+            "cells_serialized": 7161,
+            "non_empty_cells": 4905,
+            "styled_empty_cells": 2256,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "styled_empty": 2256,
+              "inline_string": 1384,
+              "formula": 2661,
+              "number_or_serial": 860
+            },
+            "formula_count": 2661,
+            "inline_text_characters": 13874,
+            "style_id_counts": {
+              "3": 3360,
+              "1": 2603,
+              "0": 880,
+              "5": 217,
+              "2": 100,
+              "7": 1
+            },
+            "distinct_style_ids_used": 6,
+            "dimension_ref": null,
+            "dimension_end_row": 33,
+            "actual_last_row": 33,
+            "dimension_end_column_index": 217,
+            "actual_last_column_index": 217,
+            "dimension_inflated": false,
+            "column_definitions": 217,
+            "merge_range_count": 475,
+            "validation_count": 0,
+            "frozen_pane": {
+              "xSplit": "1",
+              "ySplit": "13",
+              "topLeftCell": "B14"
+            },
+            "byte_profile": {
+              "total": 343634,
+              "prefix_total": 12064,
+              "column_definitions": 11727,
+              "header_and_aggregate_rows": 78597,
+              "data_rows_total": 239982,
+              "data_cell_value_content": 138462,
+              "data_cell_wrapper_overhead": 101160,
+              "data_row_wrapper_overhead": 360,
+              "tail_total": 12991,
+              "merge_cells_block": 12967,
+              "validations_block": 0,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 78099
+          }
+        },
+        "styles": {
+          "numFmts": 3,
+          "fonts": 2,
+          "fills": 1,
+          "borders": 2,
+          "cellStyleXfs": 1,
+          "cellXfs": 10,
+          "cellStyles": 1,
+          "duplicate_exact_xfs": 2,
+          "duplicate_near_identical_xfs": 2
+        },
+        "shared_strings": {
+          "present": false,
+          "items": 0,
+          "characters": 0
+        },
+        "formula_count": 2661,
+        "ranked_contributors": [
+          {
+            "contributor": "sheet data values (<v>/<f>/<is> content)",
+            "uncompressed_bytes": 138462,
+            "estimated_compressed_bytes": 31468.8,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet cell XML wrappers (refs, styles, tags)",
+            "uncompressed_bytes": 101160,
+            "estimated_compressed_bytes": 22991.0,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet header/aggregate rows",
+            "uncompressed_bytes": 78597,
+            "estimated_compressed_bytes": 17863.0,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet prefix/cols/tail (merges, validations)",
+            "uncompressed_bytes": 25055,
+            "estimated_compressed_bytes": 5694.3,
+            "estimated": true
+          },
+          {
+            "contributor": "xl/styles.xml",
+            "uncompressed_bytes": 1956,
+            "estimated_compressed_bytes": 674,
+            "estimated": true
+          },
+          {
+            "contributor": "other package parts",
+            "uncompressed_bytes": 1729,
+            "estimated_compressed_bytes": null,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet row wrappers",
+            "uncompressed_bytes": 360,
+            "estimated_compressed_bytes": 81.8,
+            "estimated": true
+          }
+        ]
+      }
+    },
+    {
+      "workload": {
+        "id": "plan_typical_values",
+        "family": "plan",
+        "rows": 1000,
+        "profile": "typical",
+        "values_only": true,
+        "block": null,
+        "note": "217-column plan, values"
+      },
+      "final_bytes": {
+        "n": 3,
+        "median": 1816238,
+        "min": 1816238,
+        "max": 1816238
+      },
+      "wall_seconds": {
+        "n": 3,
+        "median": 0.177811,
+        "min": 0.16986069991253316,
+        "max": 0.17910560010932386
+      },
+      "peak_python_heap_bytes": 15503555,
+      "os_peak_working_set_before": 102084608,
+      "os_peak_working_set_after": 123142144,
+      "rows": 1013,
+      "columns": 217,
+      "non_empty_cells": 217565,
+      "cells_serialized": 219821,
+      "sheet_count": 1,
+      "formula_count": 0,
+      "shared_strings": {
+        "present": false,
+        "items": 0,
+        "characters": 0
+      },
+      "style_records": {
+        "numFmts": 3,
+        "fonts": 2,
+        "fills": 1,
+        "borders": 2,
+        "cellStyleXfs": 1,
+        "cellXfs": 10,
+        "cellStyles": 1,
+        "duplicate_exact_xfs": 2,
+        "duplicate_near_identical_xfs": 2
+      },
+      "inspection": {
+        "final_bytes": 1816238,
+        "zip": {
+          "entry_count": 6,
+          "compressed_bytes_sum": 1815448,
+          "uncompressed_bytes_sum": 8903049,
+          "compression_ratio": 4.9041,
+          "entries": [
+            {
+              "name": "xl/worksheets/sheet1.xml",
+              "compressed_bytes": 1813755,
+              "uncompressed_bytes": 8899364,
+              "ratio": 4.9066,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/styles.xml",
+              "compressed_bytes": 674,
+              "uncompressed_bytes": 1956,
+              "ratio": 2.9021,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "[Content_Types].xml",
+              "compressed_bytes": 325,
+              "uncompressed_bytes": 680,
+              "ratio": 2.0923,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/workbook.xml",
+              "compressed_bytes": 263,
+              "uncompressed_bytes": 329,
+              "ratio": 1.251,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/_rels/workbook.xml.rels",
+              "compressed_bytes": 225,
+              "uncompressed_bytes": 424,
+              "ratio": 1.8844,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "_rels/.rels",
+              "compressed_bytes": 206,
+              "uncompressed_bytes": 296,
+              "ratio": 1.4369,
+              "compression_method": 8,
+              "flag_bits": 8
+            }
+          ],
+          "categories": {
+            "other": {
+              "compressed_bytes": 756,
+              "uncompressed_bytes": 1400,
+              "parts": 3
+            },
+            "workbook": {
+              "compressed_bytes": 263,
+              "uncompressed_bytes": 329,
+              "parts": 1
+            },
+            "styles": {
+              "compressed_bytes": 674,
+              "uncompressed_bytes": 1956,
+              "parts": 1
+            },
+            "worksheets": {
+              "compressed_bytes": 1813755,
+              "uncompressed_bytes": 8899364,
+              "parts": 1
+            }
+          }
+        },
+        "sheets": {
+          "xl/worksheets/sheet1.xml": {
+            "part": "xl/worksheets/sheet1.xml",
+            "rows_serialized": 1013,
+            "data_rows": 1000,
+            "header_or_aggregate_rows": 13,
+            "cells_serialized": 219821,
+            "non_empty_cells": 217565,
+            "styled_empty_cells": 2256,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "styled_empty": 2256,
+              "inline_string": 41564,
+              "number_or_serial": 176001
+            },
+            "formula_count": 0,
+            "inline_text_characters": 468350,
+            "style_id_counts": {
+              "3": 168000,
+              "0": 44000,
+              "2": 5000,
+              "1": 2603,
+              "5": 217,
+              "7": 1
+            },
+            "distinct_style_ids_used": 6,
+            "dimension_ref": null,
+            "dimension_end_row": 1013,
+            "actual_last_row": 1013,
+            "dimension_end_column_index": 217,
+            "actual_last_column_index": 217,
+            "dimension_inflated": false,
+            "column_definitions": 217,
+            "merge_range_count": 475,
+            "validation_count": 0,
+            "frozen_pane": {
+              "xSplit": "1",
+              "ySplit": "13",
+              "topLeftCell": "B14"
+            },
+            "byte_profile": {
+              "total": 8899364,
+              "prefix_total": 12064,
+              "column_definitions": 11727,
+              "header_and_aggregate_rows": 78580,
+              "data_rows_total": 8795729,
+              "data_cell_value_content": 3517425,
+              "data_cell_wrapper_overhead": 5259376,
+              "data_row_wrapper_overhead": 18928,
+              "tail_total": 12991,
+              "merge_cells_block": 12967,
+              "validations_block": 0,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 1813755
+          }
+        },
+        "styles": {
+          "numFmts": 3,
+          "fonts": 2,
+          "fills": 1,
+          "borders": 2,
+          "cellStyleXfs": 1,
+          "cellXfs": 10,
+          "cellStyles": 1,
+          "duplicate_exact_xfs": 2,
+          "duplicate_near_identical_xfs": 2
+        },
+        "shared_strings": {
+          "present": false,
+          "items": 0,
+          "characters": 0
+        },
+        "formula_count": 0,
+        "ranked_contributors": [
+          {
+            "contributor": "sheet cell XML wrappers (refs, styles, tags)",
+            "uncompressed_bytes": 5259376,
+            "estimated_compressed_bytes": 1071899.0,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet data values (<v>/<f>/<is> content)",
+            "uncompressed_bytes": 3517425,
+            "estimated_compressed_bytes": 716876.8,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet header/aggregate rows",
+            "uncompressed_bytes": 78580,
+            "estimated_compressed_bytes": 16015.2,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet prefix/cols/tail (merges, validations)",
+            "uncompressed_bytes": 25055,
+            "estimated_compressed_bytes": 5106.4,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet row wrappers",
+            "uncompressed_bytes": 18928,
+            "estimated_compressed_bytes": 3857.7,
+            "estimated": true
+          },
+          {
+            "contributor": "xl/styles.xml",
+            "uncompressed_bytes": 1956,
+            "estimated_compressed_bytes": 674,
+            "estimated": true
+          },
+          {
+            "contributor": "other package parts",
+            "uncompressed_bytes": 1729,
+            "estimated_compressed_bytes": null,
+            "estimated": true
+          }
+        ]
+      }
+    },
+    {
+      "workload": {
+        "id": "plan_typical_formulas",
+        "family": "plan",
+        "rows": 1000,
+        "profile": "typical",
+        "values_only": false,
+        "block": null,
+        "note": "217-column plan, live formulas"
+      },
+      "final_bytes": {
+        "n": 3,
+        "median": 3160001,
+        "min": 3160001,
+        "max": 3160001
+      },
+      "wall_seconds": {
+        "n": 3,
+        "median": 0.215792,
+        "min": 0.20852599991485476,
+        "max": 0.2172256000339985
+      },
+      "peak_python_heap_bytes": 16160744,
+      "os_peak_working_set_before": 263680000,
+      "os_peak_working_set_after": 263680000,
+      "rows": 1013,
+      "columns": 217,
+      "non_empty_cells": 217565,
+      "cells_serialized": 219821,
+      "sheet_count": 1,
+      "formula_count": 133001,
+      "shared_strings": {
+        "present": false,
+        "items": 0,
+        "characters": 0
+      },
+      "style_records": {
+        "numFmts": 3,
+        "fonts": 2,
+        "fills": 1,
+        "borders": 2,
+        "cellStyleXfs": 1,
+        "cellXfs": 10,
+        "cellStyles": 1,
+        "duplicate_exact_xfs": 2,
+        "duplicate_near_identical_xfs": 2
+      },
+      "inspection": {
+        "final_bytes": 3160001,
+        "zip": {
+          "entry_count": 6,
+          "compressed_bytes_sum": 3159211,
+          "uncompressed_bytes_sum": 12706662,
+          "compression_ratio": 4.0221,
+          "entries": [
+            {
+              "name": "xl/worksheets/sheet1.xml",
+              "compressed_bytes": 3157518,
+              "uncompressed_bytes": 12702977,
+              "ratio": 4.0231,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/styles.xml",
+              "compressed_bytes": 674,
+              "uncompressed_bytes": 1956,
+              "ratio": 2.9021,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "[Content_Types].xml",
+              "compressed_bytes": 325,
+              "uncompressed_bytes": 680,
+              "ratio": 2.0923,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/workbook.xml",
+              "compressed_bytes": 263,
+              "uncompressed_bytes": 329,
+              "ratio": 1.251,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/_rels/workbook.xml.rels",
+              "compressed_bytes": 225,
+              "uncompressed_bytes": 424,
+              "ratio": 1.8844,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "_rels/.rels",
+              "compressed_bytes": 206,
+              "uncompressed_bytes": 296,
+              "ratio": 1.4369,
+              "compression_method": 8,
+              "flag_bits": 8
+            }
+          ],
+          "categories": {
+            "other": {
+              "compressed_bytes": 756,
+              "uncompressed_bytes": 1400,
+              "parts": 3
+            },
+            "workbook": {
+              "compressed_bytes": 263,
+              "uncompressed_bytes": 329,
+              "parts": 1
+            },
+            "styles": {
+              "compressed_bytes": 674,
+              "uncompressed_bytes": 1956,
+              "parts": 1
+            },
+            "worksheets": {
+              "compressed_bytes": 3157518,
+              "uncompressed_bytes": 12702977,
+              "parts": 1
+            }
+          }
+        },
+        "sheets": {
+          "xl/worksheets/sheet1.xml": {
+            "part": "xl/worksheets/sheet1.xml",
+            "rows_serialized": 1013,
+            "data_rows": 1000,
+            "header_or_aggregate_rows": 13,
+            "cells_serialized": 219821,
+            "non_empty_cells": 217565,
+            "styled_empty_cells": 2256,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "styled_empty": 2256,
+              "inline_string": 41564,
+              "formula": 133001,
+              "number_or_serial": 43000
+            },
+            "formula_count": 133001,
+            "inline_text_characters": 468350,
+            "style_id_counts": {
+              "3": 168000,
+              "0": 44000,
+              "2": 5000,
+              "1": 2603,
+              "5": 217,
+              "7": 1
+            },
+            "distinct_style_ids_used": 6,
+            "dimension_ref": null,
+            "dimension_end_row": 1013,
+            "actual_last_row": 1013,
+            "dimension_end_column_index": 217,
+            "actual_last_column_index": 217,
+            "dimension_inflated": false,
+            "column_definitions": 217,
+            "merge_range_count": 475,
+            "validation_count": 0,
+            "frozen_pane": {
+              "xSplit": "1",
+              "ySplit": "13",
+              "topLeftCell": "B14"
+            },
+            "byte_profile": {
+              "total": 12702977,
+              "prefix_total": 12064,
+              "column_definitions": 11727,
+              "header_and_aggregate_rows": 78601,
+              "data_rows_total": 12599321,
+              "data_cell_value_content": 7321017,
+              "data_cell_wrapper_overhead": 5259376,
+              "data_row_wrapper_overhead": 18928,
+              "tail_total": 12991,
+              "merge_cells_block": 12967,
+              "validations_block": 0,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 3157518
+          }
+        },
+        "styles": {
+          "numFmts": 3,
+          "fonts": 2,
+          "fills": 1,
+          "borders": 2,
+          "cellStyleXfs": 1,
+          "cellXfs": 10,
+          "cellStyles": 1,
+          "duplicate_exact_xfs": 2,
+          "duplicate_near_identical_xfs": 2
+        },
+        "shared_strings": {
+          "present": false,
+          "items": 0,
+          "characters": 0
+        },
+        "formula_count": 133001,
+        "ranked_contributors": [
+          {
+            "contributor": "sheet data values (<v>/<f>/<is> content)",
+            "uncompressed_bytes": 7321017,
+            "estimated_compressed_bytes": 1819750.0,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet cell XML wrappers (refs, styles, tags)",
+            "uncompressed_bytes": 5259376,
+            "estimated_compressed_bytes": 1307297.8,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet header/aggregate rows",
+            "uncompressed_bytes": 78601,
+            "estimated_compressed_bytes": 19537.5,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet prefix/cols/tail (merges, validations)",
+            "uncompressed_bytes": 25055,
+            "estimated_compressed_bytes": 6227.8,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet row wrappers",
+            "uncompressed_bytes": 18928,
+            "estimated_compressed_bytes": 4704.8,
+            "estimated": true
+          },
+          {
+            "contributor": "xl/styles.xml",
+            "uncompressed_bytes": 1956,
+            "estimated_compressed_bytes": 674,
+            "estimated": true
+          },
+          {
+            "contributor": "other package parts",
+            "uncompressed_bytes": 1729,
+            "estimated_compressed_bytes": null,
+            "estimated": true
+          }
+        ]
+      }
+    },
+    {
+      "workload": {
+        "id": "plan_large_values",
+        "family": "plan",
+        "rows": 10000,
+        "profile": "typical",
+        "values_only": true,
+        "block": null,
+        "note": "synthetic upper-end approximation"
+      },
+      "final_bytes": {
+        "n": 3,
+        "median": 18334632,
+        "min": 18334632,
+        "max": 18334632
+      },
+      "wall_seconds": {
+        "n": 3,
+        "median": 1.755447,
+        "min": 1.7381703001447022,
+        "max": 1.7627453000750393
+      },
+      "peak_python_heap_bytes": 33877432,
+      "os_peak_working_set_before": 307421184,
+      "os_peak_working_set_after": 307421184,
+      "rows": 10013,
+      "columns": 217,
+      "non_empty_cells": 2170565,
+      "cells_serialized": 2172821,
+      "sheet_count": 1,
+      "formula_count": 0,
+      "shared_strings": {
+        "present": false,
+        "items": 0,
+        "characters": 0
+      },
+      "style_records": {
+        "numFmts": 3,
+        "fonts": 2,
+        "fills": 1,
+        "borders": 2,
+        "cellStyleXfs": 1,
+        "cellXfs": 10,
+        "cellStyles": 1,
+        "duplicate_exact_xfs": 2,
+        "duplicate_near_identical_xfs": 2
+      },
+      "inspection": {
+        "final_bytes": 18334632,
+        "zip": {
+          "entry_count": 6,
+          "compressed_bytes_sum": 18333842,
+          "uncompressed_bytes_sum": 90169677,
+          "compression_ratio": 4.9182,
+          "entries": [
+            {
+              "name": "xl/worksheets/sheet1.xml",
+              "compressed_bytes": 18332149,
+              "uncompressed_bytes": 90165992,
+              "ratio": 4.9185,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/styles.xml",
+              "compressed_bytes": 674,
+              "uncompressed_bytes": 1956,
+              "ratio": 2.9021,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "[Content_Types].xml",
+              "compressed_bytes": 325,
+              "uncompressed_bytes": 680,
+              "ratio": 2.0923,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/workbook.xml",
+              "compressed_bytes": 263,
+              "uncompressed_bytes": 329,
+              "ratio": 1.251,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/_rels/workbook.xml.rels",
+              "compressed_bytes": 225,
+              "uncompressed_bytes": 424,
+              "ratio": 1.8844,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "_rels/.rels",
+              "compressed_bytes": 206,
+              "uncompressed_bytes": 296,
+              "ratio": 1.4369,
+              "compression_method": 8,
+              "flag_bits": 8
+            }
+          ],
+          "categories": {
+            "other": {
+              "compressed_bytes": 756,
+              "uncompressed_bytes": 1400,
+              "parts": 3
+            },
+            "workbook": {
+              "compressed_bytes": 263,
+              "uncompressed_bytes": 329,
+              "parts": 1
+            },
+            "styles": {
+              "compressed_bytes": 674,
+              "uncompressed_bytes": 1956,
+              "parts": 1
+            },
+            "worksheets": {
+              "compressed_bytes": 18332149,
+              "uncompressed_bytes": 90165992,
+              "parts": 1
+            }
+          }
+        },
+        "sheets": {
+          "xl/worksheets/sheet1.xml": {
+            "part": "xl/worksheets/sheet1.xml",
+            "rows_serialized": 10013,
+            "data_rows": 10000,
+            "header_or_aggregate_rows": 13,
+            "cells_serialized": 2172821,
+            "non_empty_cells": 2170565,
+            "styled_empty_cells": 2256,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "styled_empty": 2256,
+              "inline_string": 410564,
+              "number_or_serial": 1760001
+            },
+            "formula_count": 0,
+            "inline_text_characters": 4642100,
+            "style_id_counts": {
+              "3": 1680000,
+              "0": 440000,
+              "2": 50000,
+              "1": 2603,
+              "5": 217,
+              "7": 1
+            },
+            "distinct_style_ids_used": 6,
+            "dimension_ref": null,
+            "dimension_end_row": 10013,
+            "actual_last_row": 10013,
+            "dimension_end_column_index": 217,
+            "actual_last_column_index": 217,
+            "dimension_inflated": false,
+            "column_definitions": 217,
+            "merge_range_count": 475,
+            "validation_count": 0,
+            "frozen_pane": {
+              "xSplit": "1",
+              "ySplit": "13",
+              "topLeftCell": "B14"
+            },
+            "byte_profile": {
+              "total": 90165992,
+              "prefix_total": 12064,
+              "column_definitions": 11727,
+              "header_and_aggregate_rows": 78581,
+              "data_rows_total": 90062356,
+              "data_cell_value_content": 35173000,
+              "data_cell_wrapper_overhead": 54690414,
+              "data_row_wrapper_overhead": 198942,
+              "tail_total": 12991,
+              "merge_cells_block": 12967,
+              "validations_block": 0,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 18332149
+          }
+        },
+        "styles": {
+          "numFmts": 3,
+          "fonts": 2,
+          "fills": 1,
+          "borders": 2,
+          "cellStyleXfs": 1,
+          "cellXfs": 10,
+          "cellStyles": 1,
+          "duplicate_exact_xfs": 2,
+          "duplicate_near_identical_xfs": 2
+        },
+        "shared_strings": {
+          "present": false,
+          "items": 0,
+          "characters": 0
+        },
+        "formula_count": 0,
+        "ranked_contributors": [
+          {
+            "contributor": "sheet cell XML wrappers (refs, styles, tags)",
+            "uncompressed_bytes": 54690414,
+            "estimated_compressed_bytes": 11119412.1,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet data values (<v>/<f>/<is> content)",
+            "uncompressed_bytes": 35173000,
+            "estimated_compressed_bytes": 7151218.1,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet row wrappers",
+            "uncompressed_bytes": 198942,
+            "estimated_compressed_bytes": 40448.0,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet header/aggregate rows",
+            "uncompressed_bytes": 78581,
+            "estimated_compressed_bytes": 15976.7,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet prefix/cols/tail (merges, validations)",
+            "uncompressed_bytes": 25055,
+            "estimated_compressed_bytes": 5094.1,
+            "estimated": true
+          },
+          {
+            "contributor": "xl/styles.xml",
+            "uncompressed_bytes": 1956,
+            "estimated_compressed_bytes": 674,
+            "estimated": true
+          },
+          {
+            "contributor": "other package parts",
+            "uncompressed_bytes": 1729,
+            "estimated_compressed_bytes": null,
+            "estimated": true
+          }
+        ]
+      }
+    },
+    {
+      "workload": {
+        "id": "plan_repeated_text",
+        "family": "plan",
+        "rows": 2000,
+        "profile": "repeated",
+        "values_only": true,
+        "block": null,
+        "note": "low-cardinality labels"
+      },
+      "final_bytes": {
+        "n": 3,
+        "median": 3646641,
+        "min": 3646641,
+        "max": 3646641
+      },
+      "wall_seconds": {
+        "n": 3,
+        "median": 0.338328,
+        "min": 0.3361903999466449,
+        "max": 0.3388679998461157
+      },
+      "peak_python_heap_bytes": 14856574,
+      "os_peak_working_set_before": 1876566016,
+      "os_peak_working_set_after": 1876566016,
+      "rows": 2013,
+      "columns": 217,
+      "non_empty_cells": 434565,
+      "cells_serialized": 436821,
+      "sheet_count": 1,
+      "formula_count": 0,
+      "shared_strings": {
+        "present": false,
+        "items": 0,
+        "characters": 0
+      },
+      "style_records": {
+        "numFmts": 3,
+        "fonts": 2,
+        "fills": 1,
+        "borders": 2,
+        "cellStyleXfs": 1,
+        "cellXfs": 10,
+        "cellStyles": 1,
+        "duplicate_exact_xfs": 2,
+        "duplicate_near_identical_xfs": 2
+      },
+      "inspection": {
+        "final_bytes": 3646641,
+        "zip": {
+          "entry_count": 6,
+          "compressed_bytes_sum": 3645851,
+          "uncompressed_bytes_sum": 17616294,
+          "compression_ratio": 4.8319,
+          "entries": [
+            {
+              "name": "xl/worksheets/sheet1.xml",
+              "compressed_bytes": 3644158,
+              "uncompressed_bytes": 17612609,
+              "ratio": 4.8331,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/styles.xml",
+              "compressed_bytes": 674,
+              "uncompressed_bytes": 1956,
+              "ratio": 2.9021,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "[Content_Types].xml",
+              "compressed_bytes": 325,
+              "uncompressed_bytes": 680,
+              "ratio": 2.0923,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/workbook.xml",
+              "compressed_bytes": 263,
+              "uncompressed_bytes": 329,
+              "ratio": 1.251,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/_rels/workbook.xml.rels",
+              "compressed_bytes": 225,
+              "uncompressed_bytes": 424,
+              "ratio": 1.8844,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "_rels/.rels",
+              "compressed_bytes": 206,
+              "uncompressed_bytes": 296,
+              "ratio": 1.4369,
+              "compression_method": 8,
+              "flag_bits": 8
+            }
+          ],
+          "categories": {
+            "other": {
+              "compressed_bytes": 756,
+              "uncompressed_bytes": 1400,
+              "parts": 3
+            },
+            "workbook": {
+              "compressed_bytes": 263,
+              "uncompressed_bytes": 329,
+              "parts": 1
+            },
+            "styles": {
+              "compressed_bytes": 674,
+              "uncompressed_bytes": 1956,
+              "parts": 1
+            },
+            "worksheets": {
+              "compressed_bytes": 3644158,
+              "uncompressed_bytes": 17612609,
+              "parts": 1
+            }
+          }
+        },
+        "sheets": {
+          "xl/worksheets/sheet1.xml": {
+            "part": "xl/worksheets/sheet1.xml",
+            "rows_serialized": 2013,
+            "data_rows": 2000,
+            "header_or_aggregate_rows": 13,
+            "cells_serialized": 436821,
+            "non_empty_cells": 434565,
+            "styled_empty_cells": 2256,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "styled_empty": 2256,
+              "inline_string": 82564,
+              "number_or_serial": 352001
+            },
+            "formula_count": 0,
+            "inline_text_characters": 684099,
+            "style_id_counts": {
+              "3": 336000,
+              "0": 88000,
+              "2": 10000,
+              "1": 2603,
+              "5": 217,
+              "7": 1
+            },
+            "distinct_style_ids_used": 6,
+            "dimension_ref": null,
+            "dimension_end_row": 2013,
+            "actual_last_row": 2013,
+            "dimension_end_column_index": 217,
+            "actual_last_column_index": 217,
+            "dimension_inflated": false,
+            "column_definitions": 217,
+            "merge_range_count": 475,
+            "validation_count": 0,
+            "frozen_pane": {
+              "xSplit": "1",
+              "ySplit": "13",
+              "topLeftCell": "B14"
+            },
+            "byte_profile": {
+              "total": 17612609,
+              "prefix_total": 12064,
+              "column_definitions": 11727,
+              "header_and_aggregate_rows": 78580,
+              "data_rows_total": 17508974,
+              "data_cell_value_content": 6718670,
+              "data_cell_wrapper_overhead": 10751376,
+              "data_row_wrapper_overhead": 38928,
+              "tail_total": 12991,
+              "merge_cells_block": 12967,
+              "validations_block": 0,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 3644158
+          }
+        },
+        "styles": {
+          "numFmts": 3,
+          "fonts": 2,
+          "fills": 1,
+          "borders": 2,
+          "cellStyleXfs": 1,
+          "cellXfs": 10,
+          "cellStyles": 1,
+          "duplicate_exact_xfs": 2,
+          "duplicate_near_identical_xfs": 2
+        },
+        "shared_strings": {
+          "present": false,
+          "items": 0,
+          "characters": 0
+        },
+        "formula_count": 0,
+        "ranked_contributors": [
+          {
+            "contributor": "sheet cell XML wrappers (refs, styles, tags)",
+            "uncompressed_bytes": 10751376,
+            "estimated_compressed_bytes": 2224526.4,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet data values (<v>/<f>/<is> content)",
+            "uncompressed_bytes": 6718670,
+            "estimated_compressed_bytes": 1390134.5,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet header/aggregate rows",
+            "uncompressed_bytes": 78580,
+            "estimated_compressed_bytes": 16258.7,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet row wrappers",
+            "uncompressed_bytes": 38928,
+            "estimated_compressed_bytes": 8054.4,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet prefix/cols/tail (merges, validations)",
+            "uncompressed_bytes": 25055,
+            "estimated_compressed_bytes": 5184.0,
+            "estimated": true
+          },
+          {
+            "contributor": "xl/styles.xml",
+            "uncompressed_bytes": 1956,
+            "estimated_compressed_bytes": 674,
+            "estimated": true
+          },
+          {
+            "contributor": "other package parts",
+            "uncompressed_bytes": 1729,
+            "estimated_compressed_bytes": null,
+            "estimated": true
+          }
+        ]
+      }
+    },
+    {
+      "workload": {
+        "id": "plan_unique_long_text",
+        "family": "plan",
+        "rows": 2000,
+        "profile": "unique_long",
+        "values_only": true,
+        "block": null,
+        "note": "high-cardinality long strings"
+      },
+      "final_bytes": {
+        "n": 3,
+        "median": 3845273,
+        "min": 3845273,
+        "max": 3845273
+      },
+      "wall_seconds": {
+        "n": 3,
+        "median": 0.390883,
+        "min": 0.3887191000394523,
+        "max": 0.39317860011942685
+      },
+      "peak_python_heap_bytes": 25780765,
+      "os_peak_working_set_before": 1876566016,
+      "os_peak_working_set_after": 1876566016,
+      "rows": 2013,
+      "columns": 217,
+      "non_empty_cells": 434565,
+      "cells_serialized": 436821,
+      "sheet_count": 1,
+      "formula_count": 0,
+      "shared_strings": {
+        "present": false,
+        "items": 0,
+        "characters": 0
+      },
+      "style_records": {
+        "numFmts": 3,
+        "fonts": 2,
+        "fills": 1,
+        "borders": 2,
+        "cellStyleXfs": 1,
+        "cellXfs": 10,
+        "cellStyles": 1,
+        "duplicate_exact_xfs": 2,
+        "duplicate_near_identical_xfs": 2
+      },
+      "inspection": {
+        "final_bytes": 3845273,
+        "zip": {
+          "entry_count": 6,
+          "compressed_bytes_sum": 3844483,
+          "uncompressed_bytes_sum": 32944294,
+          "compression_ratio": 8.5692,
+          "entries": [
+            {
+              "name": "xl/worksheets/sheet1.xml",
+              "compressed_bytes": 3842790,
+              "uncompressed_bytes": 32940609,
+              "ratio": 8.5721,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/styles.xml",
+              "compressed_bytes": 674,
+              "uncompressed_bytes": 1956,
+              "ratio": 2.9021,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "[Content_Types].xml",
+              "compressed_bytes": 325,
+              "uncompressed_bytes": 680,
+              "ratio": 2.0923,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/workbook.xml",
+              "compressed_bytes": 263,
+              "uncompressed_bytes": 329,
+              "ratio": 1.251,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/_rels/workbook.xml.rels",
+              "compressed_bytes": 225,
+              "uncompressed_bytes": 424,
+              "ratio": 1.8844,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "_rels/.rels",
+              "compressed_bytes": 206,
+              "uncompressed_bytes": 296,
+              "ratio": 1.4369,
+              "compression_method": 8,
+              "flag_bits": 8
+            }
+          ],
+          "categories": {
+            "other": {
+              "compressed_bytes": 756,
+              "uncompressed_bytes": 1400,
+              "parts": 3
+            },
+            "workbook": {
+              "compressed_bytes": 263,
+              "uncompressed_bytes": 329,
+              "parts": 1
+            },
+            "styles": {
+              "compressed_bytes": 674,
+              "uncompressed_bytes": 1956,
+              "parts": 1
+            },
+            "worksheets": {
+              "compressed_bytes": 3842790,
+              "uncompressed_bytes": 32940609,
+              "parts": 1
+            }
+          }
+        },
+        "sheets": {
+          "xl/worksheets/sheet1.xml": {
+            "part": "xl/worksheets/sheet1.xml",
+            "rows_serialized": 2013,
+            "data_rows": 2000,
+            "header_or_aggregate_rows": 13,
+            "cells_serialized": 436821,
+            "non_empty_cells": 434565,
+            "styled_empty_cells": 2256,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "styled_empty": 2256,
+              "inline_string": 82564,
+              "number_or_serial": 352001
+            },
+            "formula_count": 0,
+            "inline_text_characters": 9140099,
+            "style_id_counts": {
+              "3": 336000,
+              "0": 88000,
+              "2": 10000,
+              "1": 2603,
+              "5": 217,
+              "7": 1
+            },
+            "distinct_style_ids_used": 6,
+            "dimension_ref": null,
+            "dimension_end_row": 2013,
+            "actual_last_row": 2013,
+            "dimension_end_column_index": 217,
+            "actual_last_column_index": 217,
+            "dimension_inflated": false,
+            "column_definitions": 217,
+            "merge_range_count": 475,
+            "validation_count": 0,
+            "frozen_pane": {
+              "xSplit": "1",
+              "ySplit": "13",
+              "topLeftCell": "B14"
+            },
+            "byte_profile": {
+              "total": 32940609,
+              "prefix_total": 12064,
+              "column_definitions": 11727,
+              "header_and_aggregate_rows": 78580,
+              "data_rows_total": 32836974,
+              "data_cell_value_content": 22046670,
+              "data_cell_wrapper_overhead": 10751376,
+              "data_row_wrapper_overhead": 38928,
+              "tail_total": 12991,
+              "merge_cells_block": 12967,
+              "validations_block": 0,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 3842790
+          }
+        },
+        "styles": {
+          "numFmts": 3,
+          "fonts": 2,
+          "fills": 1,
+          "borders": 2,
+          "cellStyleXfs": 1,
+          "cellXfs": 10,
+          "cellStyles": 1,
+          "duplicate_exact_xfs": 2,
+          "duplicate_near_identical_xfs": 2
+        },
+        "shared_strings": {
+          "present": false,
+          "items": 0,
+          "characters": 0
+        },
+        "formula_count": 0,
+        "ranked_contributors": [
+          {
+            "contributor": "sheet data values (<v>/<f>/<is> content)",
+            "uncompressed_bytes": 22046670,
+            "estimated_compressed_bytes": 2571923.4,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet cell XML wrappers (refs, styles, tags)",
+            "uncompressed_bytes": 10751376,
+            "estimated_compressed_bytes": 1254235.5,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet header/aggregate rows",
+            "uncompressed_bytes": 78580,
+            "estimated_compressed_bytes": 9167.0,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet row wrappers",
+            "uncompressed_bytes": 38928,
+            "estimated_compressed_bytes": 4541.3,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet prefix/cols/tail (merges, validations)",
+            "uncompressed_bytes": 25055,
+            "estimated_compressed_bytes": 2922.9,
+            "estimated": true
+          },
+          {
+            "contributor": "xl/styles.xml",
+            "uncompressed_bytes": 1956,
+            "estimated_compressed_bytes": 674,
+            "estimated": true
+          },
+          {
+            "contributor": "other package parts",
+            "uncompressed_bytes": 1729,
+            "estimated_compressed_bytes": null,
+            "estimated": true
+          }
+        ]
+      }
+    },
+    {
+      "workload": {
+        "id": "plan_sparse",
+        "family": "plan",
+        "rows": 2000,
+        "profile": "sparse",
+        "values_only": true,
+        "block": null,
+        "note": "mostly absent optional values"
+      },
+      "final_bytes": {
+        "n": 3,
+        "median": 541359,
+        "min": 541359,
+        "max": 541359
+      },
+      "wall_seconds": {
+        "n": 3,
+        "median": 0.104075,
+        "min": 0.09504809998907149,
+        "max": 0.10700440010987222
+      },
+      "peak_python_heap_bytes": 8543771,
+      "os_peak_working_set_before": 1876566016,
+      "os_peak_working_set_after": 1876566016,
+      "rows": 2013,
+      "columns": 217,
+      "non_empty_cells": 56565,
+      "cells_serialized": 58821,
+      "sheet_count": 1,
+      "formula_count": 0,
+      "shared_strings": {
+        "present": false,
+        "items": 0,
+        "characters": 0
+      },
+      "style_records": {
+        "numFmts": 3,
+        "fonts": 2,
+        "fills": 1,
+        "borders": 2,
+        "cellStyleXfs": 1,
+        "cellXfs": 10,
+        "cellStyles": 1,
+        "duplicate_exact_xfs": 2,
+        "duplicate_near_identical_xfs": 2
+      },
+      "inspection": {
+        "final_bytes": 541359,
+        "zip": {
+          "entry_count": 6,
+          "compressed_bytes_sum": 540569,
+          "uncompressed_bytes_sum": 2482921,
+          "compression_ratio": 4.5932,
+          "entries": [
+            {
+              "name": "xl/worksheets/sheet1.xml",
+              "compressed_bytes": 538876,
+              "uncompressed_bytes": 2479236,
+              "ratio": 4.6008,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/styles.xml",
+              "compressed_bytes": 674,
+              "uncompressed_bytes": 1956,
+              "ratio": 2.9021,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "[Content_Types].xml",
+              "compressed_bytes": 325,
+              "uncompressed_bytes": 680,
+              "ratio": 2.0923,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/workbook.xml",
+              "compressed_bytes": 263,
+              "uncompressed_bytes": 329,
+              "ratio": 1.251,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/_rels/workbook.xml.rels",
+              "compressed_bytes": 225,
+              "uncompressed_bytes": 424,
+              "ratio": 1.8844,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "_rels/.rels",
+              "compressed_bytes": 206,
+              "uncompressed_bytes": 296,
+              "ratio": 1.4369,
+              "compression_method": 8,
+              "flag_bits": 8
+            }
+          ],
+          "categories": {
+            "other": {
+              "compressed_bytes": 756,
+              "uncompressed_bytes": 1400,
+              "parts": 3
+            },
+            "workbook": {
+              "compressed_bytes": 263,
+              "uncompressed_bytes": 329,
+              "parts": 1
+            },
+            "styles": {
+              "compressed_bytes": 674,
+              "uncompressed_bytes": 1956,
+              "parts": 1
+            },
+            "worksheets": {
+              "compressed_bytes": 538876,
+              "uncompressed_bytes": 2479236,
+              "parts": 1
+            }
+          }
+        },
+        "sheets": {
+          "xl/worksheets/sheet1.xml": {
+            "part": "xl/worksheets/sheet1.xml",
+            "rows_serialized": 2013,
+            "data_rows": 2000,
+            "header_or_aggregate_rows": 13,
+            "cells_serialized": 58821,
+            "non_empty_cells": 56565,
+            "styled_empty_cells": 2256,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "styled_empty": 2256,
+              "inline_string": 12564,
+              "number_or_serial": 44001
+            },
+            "formula_count": 0,
+            "inline_text_characters": 139351,
+            "style_id_counts": {
+              "3": 42000,
+              "0": 12750,
+              "1": 2603,
+              "2": 1250,
+              "5": 217,
+              "7": 1
+            },
+            "distinct_style_ids_used": 6,
+            "dimension_ref": null,
+            "dimension_end_row": 2013,
+            "actual_last_row": 2013,
+            "dimension_end_column_index": 217,
+            "actual_last_column_index": 217,
+            "dimension_inflated": false,
+            "column_definitions": 217,
+            "merge_range_count": 475,
+            "validation_count": 0,
+            "frozen_pane": {
+              "xSplit": "1",
+              "ySplit": "13",
+              "topLeftCell": "B14"
+            },
+            "byte_profile": {
+              "total": 2479236,
+              "prefix_total": 12064,
+              "column_definitions": 11727,
+              "header_and_aggregate_rows": 78580,
+              "data_rows_total": 2375601,
+              "data_cell_value_content": 939439,
+              "data_cell_wrapper_overhead": 1397234,
+              "data_row_wrapper_overhead": 38928,
+              "tail_total": 12991,
+              "merge_cells_block": 12967,
+              "validations_block": 0,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 538876
+          }
+        },
+        "styles": {
+          "numFmts": 3,
+          "fonts": 2,
+          "fills": 1,
+          "borders": 2,
+          "cellStyleXfs": 1,
+          "cellXfs": 10,
+          "cellStyles": 1,
+          "duplicate_exact_xfs": 2,
+          "duplicate_near_identical_xfs": 2
+        },
+        "shared_strings": {
+          "present": false,
+          "items": 0,
+          "characters": 0
+        },
+        "formula_count": 0,
+        "ranked_contributors": [
+          {
+            "contributor": "sheet cell XML wrappers (refs, styles, tags)",
+            "uncompressed_bytes": 1397234,
+            "estimated_compressed_bytes": 303696.7,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet data values (<v>/<f>/<is> content)",
+            "uncompressed_bytes": 939439,
+            "estimated_compressed_bytes": 204192.4,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet header/aggregate rows",
+            "uncompressed_bytes": 78580,
+            "estimated_compressed_bytes": 17079.8,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet row wrappers",
+            "uncompressed_bytes": 38928,
+            "estimated_compressed_bytes": 8461.2,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet prefix/cols/tail (merges, validations)",
+            "uncompressed_bytes": 25055,
+            "estimated_compressed_bytes": 5445.8,
+            "estimated": true
+          },
+          {
+            "contributor": "xl/styles.xml",
+            "uncompressed_bytes": 1956,
+            "estimated_compressed_bytes": 674,
+            "estimated": true
+          },
+          {
+            "contributor": "other package parts",
+            "uncompressed_bytes": 1729,
+            "estimated_compressed_bytes": null,
+            "estimated": true
+          }
+        ]
+      }
+    },
+    {
+      "workload": {
+        "id": "plan_nested_block_formulas",
+        "family": "plan",
+        "rows": 2000,
+        "profile": "typical",
+        "values_only": false,
+        "block": "mto",
+        "note": "11-level header + compacted block merges + formulas"
+      },
+      "final_bytes": {
+        "n": 3,
+        "median": 345297,
+        "min": 345297,
+        "max": 345297
+      },
+      "wall_seconds": {
+        "n": 3,
+        "median": 0.107546,
+        "min": 0.10607910016551614,
+        "max": 0.11315570003353059
+      },
+      "peak_python_heap_bytes": 14645665,
+      "os_peak_working_set_before": 1876566016,
+      "os_peak_working_set_after": 1876566016,
+      "rows": 2013,
+      "columns": 18,
+      "non_empty_cells": 36041,
+      "cells_serialized": 36234,
+      "sheet_count": 1,
+      "formula_count": 2000,
+      "shared_strings": {
+        "present": false,
+        "items": 0,
+        "characters": 0
+      },
+      "style_records": {
+        "numFmts": 3,
+        "fonts": 2,
+        "fills": 1,
+        "borders": 2,
+        "cellStyleXfs": 1,
+        "cellXfs": 10,
+        "cellStyles": 1,
+        "duplicate_exact_xfs": 2,
+        "duplicate_near_identical_xfs": 2
+      },
+      "inspection": {
+        "final_bytes": 345297,
+        "zip": {
+          "entry_count": 6,
+          "compressed_bytes_sum": 344507,
+          "uncompressed_bytes_sum": 1743349,
+          "compression_ratio": 5.0604,
+          "entries": [
+            {
+              "name": "xl/worksheets/sheet1.xml",
+              "compressed_bytes": 342814,
+              "uncompressed_bytes": 1739664,
+              "ratio": 5.0747,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/styles.xml",
+              "compressed_bytes": 674,
+              "uncompressed_bytes": 1956,
+              "ratio": 2.9021,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "[Content_Types].xml",
+              "compressed_bytes": 325,
+              "uncompressed_bytes": 680,
+              "ratio": 2.0923,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/workbook.xml",
+              "compressed_bytes": 263,
+              "uncompressed_bytes": 329,
+              "ratio": 1.251,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/_rels/workbook.xml.rels",
+              "compressed_bytes": 225,
+              "uncompressed_bytes": 424,
+              "ratio": 1.8844,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "_rels/.rels",
+              "compressed_bytes": 206,
+              "uncompressed_bytes": 296,
+              "ratio": 1.4369,
+              "compression_method": 8,
+              "flag_bits": 8
+            }
+          ],
+          "categories": {
+            "other": {
+              "compressed_bytes": 756,
+              "uncompressed_bytes": 1400,
+              "parts": 3
+            },
+            "workbook": {
+              "compressed_bytes": 263,
+              "uncompressed_bytes": 329,
+              "parts": 1
+            },
+            "styles": {
+              "compressed_bytes": 674,
+              "uncompressed_bytes": 1956,
+              "parts": 1
+            },
+            "worksheets": {
+              "compressed_bytes": 342814,
+              "uncompressed_bytes": 1739664,
+              "parts": 1
+            }
+          }
+        },
+        "sheets": {
+          "xl/worksheets/sheet1.xml": {
+            "part": "xl/worksheets/sheet1.xml",
+            "rows_serialized": 2013,
+            "data_rows": 2000,
+            "header_or_aggregate_rows": 13,
+            "cells_serialized": 36234,
+            "non_empty_cells": 36041,
+            "styled_empty_cells": 193,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "styled_empty": 193,
+              "inline_string": 16041,
+              "number_or_serial": 18000,
+              "formula": 2000
+            },
+            "formula_count": 2000,
+            "inline_text_characters": 122163,
+            "style_id_counts": {
+              "3": 18000,
+              "0": 16000,
+              "2": 2000,
+              "1": 216,
+              "5": 18
+            },
+            "distinct_style_ids_used": 5,
+            "dimension_ref": null,
+            "dimension_end_row": 2013,
+            "actual_last_row": 2013,
+            "dimension_end_column_index": 18,
+            "actual_last_column_index": 18,
+            "dimension_inflated": false,
+            "column_definitions": 18,
+            "merge_range_count": 37,
+            "validation_count": 0,
+            "frozen_pane": {
+              "xSplit": "1",
+              "ySplit": "13",
+              "topLeftCell": "B14"
+            },
+            "byte_profile": {
+              "total": 1739664,
+              "prefix_total": 1281,
+              "column_definitions": 944,
+              "header_and_aggregate_rows": 7144,
+              "data_rows_total": 1730229,
+              "data_cell_value_content": 754597,
+              "data_cell_wrapper_overhead": 936704,
+              "data_row_wrapper_overhead": 38928,
+              "tail_total": 1010,
+              "merge_cells_block": 986,
+              "validations_block": 0,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 342814
+          }
+        },
+        "styles": {
+          "numFmts": 3,
+          "fonts": 2,
+          "fills": 1,
+          "borders": 2,
+          "cellStyleXfs": 1,
+          "cellXfs": 10,
+          "cellStyles": 1,
+          "duplicate_exact_xfs": 2,
+          "duplicate_near_identical_xfs": 2
+        },
+        "shared_strings": {
+          "present": false,
+          "items": 0,
+          "characters": 0
+        },
+        "formula_count": 2000,
+        "ranked_contributors": [
+          {
+            "contributor": "sheet cell XML wrappers (refs, styles, tags)",
+            "uncompressed_bytes": 936704,
+            "estimated_compressed_bytes": 184584.6,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet data values (<v>/<f>/<is> content)",
+            "uncompressed_bytes": 754597,
+            "estimated_compressed_bytes": 148699.1,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet row wrappers",
+            "uncompressed_bytes": 38928,
+            "estimated_compressed_bytes": 7671.1,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet header/aggregate rows",
+            "uncompressed_bytes": 7144,
+            "estimated_compressed_bytes": 1407.8,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet prefix/cols/tail (merges, validations)",
+            "uncompressed_bytes": 2291,
+            "estimated_compressed_bytes": 451.5,
+            "estimated": true
+          },
+          {
+            "contributor": "xl/styles.xml",
+            "uncompressed_bytes": 1956,
+            "estimated_compressed_bytes": 674,
+            "estimated": true
+          },
+          {
+            "contributor": "other package parts",
+            "uncompressed_bytes": 1729,
+            "estimated_compressed_bytes": null,
+            "estimated": true
+          }
+        ]
+      }
+    },
+    {
+      "workload": {
+        "id": "table_small_values",
+        "family": "table",
+        "rows": 10,
+        "profile": "typical",
+        "values_only": true,
+        "block": null,
+        "note": "fixed-overhead probe"
+      },
+      "final_bytes": {
+        "n": 3,
+        "median": 5252,
+        "min": 5252,
+        "max": 5252
+      },
+      "wall_seconds": {
+        "n": 3,
+        "median": 0.000626,
+        "min": 0.0006118000019341707,
+        "max": 0.0010593999177217484
+      },
+      "peak_python_heap_bytes": 416491,
+      "os_peak_working_set_before": 1876566016,
+      "os_peak_working_set_after": 1876566016,
+      "rows": 12,
+      "columns": 11,
+      "non_empty_cells": 123,
+      "cells_serialized": 132,
+      "sheet_count": 2,
+      "formula_count": 0,
+      "shared_strings": {
+        "present": false,
+        "items": 0,
+        "characters": 0
+      },
+      "style_records": {
+        "numFmts": 3,
+        "fonts": 2,
+        "fills": 1,
+        "borders": 2,
+        "cellStyleXfs": 1,
+        "cellXfs": 22,
+        "cellStyles": 1,
+        "duplicate_exact_xfs": 2,
+        "duplicate_near_identical_xfs": 2
+      },
+      "inspection": {
+        "final_bytes": 5252,
+        "zip": {
+          "entry_count": 7,
+          "compressed_bytes_sum": 4322,
+          "uncompressed_bytes_sum": 15509,
+          "compression_ratio": 3.5884,
+          "entries": [
+            {
+              "name": "xl/worksheets/sheet1.xml",
+              "compressed_bytes": 2149,
+              "uncompressed_bytes": 8850,
+              "ratio": 4.1182,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/styles.xml",
+              "compressed_bytes": 753,
+              "uncompressed_bytes": 4003,
+              "ratio": 5.3161,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/worksheets/sheet2.xml",
+              "compressed_bytes": 350,
+              "uncompressed_bytes": 577,
+              "ratio": 1.6486,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "[Content_Types].xml",
+              "compressed_bytes": 329,
+              "uncompressed_bytes": 816,
+              "ratio": 2.4802,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/workbook.xml",
+              "compressed_bytes": 303,
+              "uncompressed_bytes": 402,
+              "ratio": 1.3267,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/_rels/workbook.xml.rels",
+              "compressed_bytes": 232,
+              "uncompressed_bytes": 565,
+              "ratio": 2.4353,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "_rels/.rels",
+              "compressed_bytes": 206,
+              "uncompressed_bytes": 296,
+              "ratio": 1.4369,
+              "compression_method": 8,
+              "flag_bits": 8
+            }
+          ],
+          "categories": {
+            "other": {
+              "compressed_bytes": 767,
+              "uncompressed_bytes": 1677,
+              "parts": 3
+            },
+            "workbook": {
+              "compressed_bytes": 303,
+              "uncompressed_bytes": 402,
+              "parts": 1
+            },
+            "styles": {
+              "compressed_bytes": 753,
+              "uncompressed_bytes": 4003,
+              "parts": 1
+            },
+            "worksheets": {
+              "compressed_bytes": 2499,
+              "uncompressed_bytes": 9427,
+              "parts": 2
+            }
+          }
+        },
+        "sheets": {
+          "xl/worksheets/sheet2.xml": {
+            "part": "xl/worksheets/sheet2.xml",
+            "rows_serialized": 4,
+            "data_rows": 2,
+            "header_or_aggregate_rows": 2,
+            "cells_serialized": 4,
+            "non_empty_cells": 4,
+            "styled_empty_cells": 0,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "inline_string": 4
+            },
+            "formula_count": 0,
+            "inline_text_characters": 30,
+            "style_id_counts": {
+              "0": 4
+            },
+            "distinct_style_ids_used": 1,
+            "dimension_ref": null,
+            "dimension_end_row": 4,
+            "actual_last_row": 4,
+            "dimension_end_column_index": 1,
+            "actual_last_column_index": 1,
+            "dimension_inflated": false,
+            "column_definitions": 0,
+            "merge_range_count": 0,
+            "validation_count": 0,
+            "frozen_pane": null,
+            "byte_profile": {
+              "total": 577,
+              "prefix_total": 249,
+              "column_definitions": 0,
+              "header_and_aggregate_rows": 152,
+              "data_rows_total": 152,
+              "data_cell_value_content": 62,
+              "data_cell_wrapper_overhead": 56,
+              "data_row_wrapper_overhead": 34,
+              "tail_total": 24,
+              "merge_cells_block": 0,
+              "validations_block": 0,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 350
+          },
+          "xl/worksheets/sheet1.xml": {
+            "part": "xl/worksheets/sheet1.xml",
+            "rows_serialized": 12,
+            "data_rows": 10,
+            "header_or_aggregate_rows": 2,
+            "cells_serialized": 132,
+            "non_empty_cells": 123,
+            "styled_empty_cells": 9,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "inline_string": 81,
+              "styled_empty": 9,
+              "number_or_serial": 42
+            },
+            "formula_count": 0,
+            "inline_text_characters": 683,
+            "style_id_counts": {
+              "8": 50,
+              "13": 30,
+              "1": 20,
+              "10": 10,
+              "17": 10,
+              "19": 10,
+              "15": 2
+            },
+            "distinct_style_ids_used": 7,
+            "dimension_ref": "A1:K12",
+            "dimension_end_row": 12,
+            "actual_last_row": 12,
+            "dimension_end_column_index": 11,
+            "actual_last_column_index": 11,
+            "dimension_inflated": false,
+            "column_definitions": 11,
+            "merge_range_count": 10,
+            "validation_count": 1,
+            "frozen_pane": {
+              "xSplit": null,
+              "ySplit": "2",
+              "topLeftCell": "A3"
+            },
+            "byte_profile": {
+              "total": 8850,
+              "prefix_total": 925,
+              "column_definitions": 577,
+              "header_and_aggregate_rows": 1002,
+              "data_rows_total": 6458,
+              "data_cell_value_content": 2762,
+              "data_cell_wrapper_overhead": 3273,
+              "data_row_wrapper_overhead": 423,
+              "tail_total": 465,
+              "merge_cells_block": 277,
+              "validations_block": 164,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 2149
+          }
+        },
+        "styles": {
+          "numFmts": 3,
+          "fonts": 2,
+          "fills": 1,
+          "borders": 2,
+          "cellStyleXfs": 1,
+          "cellXfs": 22,
+          "cellStyles": 1,
+          "duplicate_exact_xfs": 2,
+          "duplicate_near_identical_xfs": 2
+        },
+        "shared_strings": {
+          "present": false,
+          "items": 0,
+          "characters": 0
+        },
+        "formula_count": 0,
+        "ranked_contributors": [
+          {
+            "contributor": "xl/styles.xml",
+            "uncompressed_bytes": 4003,
+            "estimated_compressed_bytes": 753,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet cell XML wrappers (refs, styles, tags)",
+            "uncompressed_bytes": 3273,
+            "estimated_compressed_bytes": 794.8,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet data values (<v>/<f>/<is> content)",
+            "uncompressed_bytes": 2762,
+            "estimated_compressed_bytes": 670.7,
+            "estimated": true
+          },
+          {
+            "contributor": "other package parts",
+            "uncompressed_bytes": 2656,
+            "estimated_compressed_bytes": null,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet prefix/cols/tail (merges, validations)",
+            "uncompressed_bytes": 1390,
+            "estimated_compressed_bytes": 337.5,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet header/aggregate rows",
+            "uncompressed_bytes": 1002,
+            "estimated_compressed_bytes": 243.3,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet row wrappers",
+            "uncompressed_bytes": 423,
+            "estimated_compressed_bytes": 102.7,
+            "estimated": true
+          }
+        ]
+      }
+    },
+    {
+      "workload": {
+        "id": "table_small_formulas",
+        "family": "table",
+        "rows": 10,
+        "profile": "typical",
+        "values_only": false,
+        "block": null,
+        "note": "fixed-overhead probe, formulas"
+      },
+      "final_bytes": {
+        "n": 3,
+        "median": 5380,
+        "min": 5380,
+        "max": 5380
+      },
+      "wall_seconds": {
+        "n": 3,
+        "median": 0.000617,
+        "min": 0.000591200077906251,
+        "max": 0.0007821000181138515
+      },
+      "peak_python_heap_bytes": 416620,
+      "os_peak_working_set_before": 1876566016,
+      "os_peak_working_set_after": 1876566016,
+      "rows": 12,
+      "columns": 11,
+      "non_empty_cells": 123,
+      "cells_serialized": 132,
+      "sheet_count": 2,
+      "formula_count": 12,
+      "shared_strings": {
+        "present": false,
+        "items": 0,
+        "characters": 0
+      },
+      "style_records": {
+        "numFmts": 3,
+        "fonts": 2,
+        "fills": 1,
+        "borders": 2,
+        "cellStyleXfs": 1,
+        "cellXfs": 22,
+        "cellStyles": 1,
+        "duplicate_exact_xfs": 2,
+        "duplicate_near_identical_xfs": 2
+      },
+      "inspection": {
+        "final_bytes": 5380,
+        "zip": {
+          "entry_count": 7,
+          "compressed_bytes_sum": 4450,
+          "uncompressed_bytes_sum": 15671,
+          "compression_ratio": 3.5216,
+          "entries": [
+            {
+              "name": "xl/worksheets/sheet1.xml",
+              "compressed_bytes": 2277,
+              "uncompressed_bytes": 9012,
+              "ratio": 3.9578,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/styles.xml",
+              "compressed_bytes": 753,
+              "uncompressed_bytes": 4003,
+              "ratio": 5.3161,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/worksheets/sheet2.xml",
+              "compressed_bytes": 350,
+              "uncompressed_bytes": 577,
+              "ratio": 1.6486,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "[Content_Types].xml",
+              "compressed_bytes": 329,
+              "uncompressed_bytes": 816,
+              "ratio": 2.4802,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/workbook.xml",
+              "compressed_bytes": 303,
+              "uncompressed_bytes": 402,
+              "ratio": 1.3267,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/_rels/workbook.xml.rels",
+              "compressed_bytes": 232,
+              "uncompressed_bytes": 565,
+              "ratio": 2.4353,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "_rels/.rels",
+              "compressed_bytes": 206,
+              "uncompressed_bytes": 296,
+              "ratio": 1.4369,
+              "compression_method": 8,
+              "flag_bits": 8
+            }
+          ],
+          "categories": {
+            "other": {
+              "compressed_bytes": 767,
+              "uncompressed_bytes": 1677,
+              "parts": 3
+            },
+            "workbook": {
+              "compressed_bytes": 303,
+              "uncompressed_bytes": 402,
+              "parts": 1
+            },
+            "styles": {
+              "compressed_bytes": 753,
+              "uncompressed_bytes": 4003,
+              "parts": 1
+            },
+            "worksheets": {
+              "compressed_bytes": 2627,
+              "uncompressed_bytes": 9589,
+              "parts": 2
+            }
+          }
+        },
+        "sheets": {
+          "xl/worksheets/sheet2.xml": {
+            "part": "xl/worksheets/sheet2.xml",
+            "rows_serialized": 4,
+            "data_rows": 2,
+            "header_or_aggregate_rows": 2,
+            "cells_serialized": 4,
+            "non_empty_cells": 4,
+            "styled_empty_cells": 0,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "inline_string": 4
+            },
+            "formula_count": 0,
+            "inline_text_characters": 30,
+            "style_id_counts": {
+              "0": 4
+            },
+            "distinct_style_ids_used": 1,
+            "dimension_ref": null,
+            "dimension_end_row": 4,
+            "actual_last_row": 4,
+            "dimension_end_column_index": 1,
+            "actual_last_column_index": 1,
+            "dimension_inflated": false,
+            "column_definitions": 0,
+            "merge_range_count": 0,
+            "validation_count": 0,
+            "frozen_pane": null,
+            "byte_profile": {
+              "total": 577,
+              "prefix_total": 249,
+              "column_definitions": 0,
+              "header_and_aggregate_rows": 152,
+              "data_rows_total": 152,
+              "data_cell_value_content": 62,
+              "data_cell_wrapper_overhead": 56,
+              "data_row_wrapper_overhead": 34,
+              "tail_total": 24,
+              "merge_cells_block": 0,
+              "validations_block": 0,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 350
+          },
+          "xl/worksheets/sheet1.xml": {
+            "part": "xl/worksheets/sheet1.xml",
+            "rows_serialized": 12,
+            "data_rows": 10,
+            "header_or_aggregate_rows": 2,
+            "cells_serialized": 132,
+            "non_empty_cells": 123,
+            "styled_empty_cells": 9,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "inline_string": 81,
+              "styled_empty": 9,
+              "formula": 12,
+              "number_or_serial": 30
+            },
+            "formula_count": 12,
+            "inline_text_characters": 683,
+            "style_id_counts": {
+              "8": 50,
+              "13": 30,
+              "1": 20,
+              "10": 10,
+              "17": 10,
+              "19": 10,
+              "15": 2
+            },
+            "distinct_style_ids_used": 7,
+            "dimension_ref": "A1:K12",
+            "dimension_end_row": 12,
+            "actual_last_row": 12,
+            "dimension_end_column_index": 11,
+            "actual_last_column_index": 11,
+            "dimension_inflated": false,
+            "column_definitions": 11,
+            "merge_range_count": 10,
+            "validation_count": 1,
+            "frozen_pane": {
+              "xSplit": null,
+              "ySplit": "2",
+              "topLeftCell": "A3"
+            },
+            "byte_profile": {
+              "total": 9012,
+              "prefix_total": 925,
+              "column_definitions": 577,
+              "header_and_aggregate_rows": 1038,
+              "data_rows_total": 6584,
+              "data_cell_value_content": 2888,
+              "data_cell_wrapper_overhead": 3273,
+              "data_row_wrapper_overhead": 423,
+              "tail_total": 465,
+              "merge_cells_block": 277,
+              "validations_block": 164,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 2277
+          }
+        },
+        "styles": {
+          "numFmts": 3,
+          "fonts": 2,
+          "fills": 1,
+          "borders": 2,
+          "cellStyleXfs": 1,
+          "cellXfs": 22,
+          "cellStyles": 1,
+          "duplicate_exact_xfs": 2,
+          "duplicate_near_identical_xfs": 2
+        },
+        "shared_strings": {
+          "present": false,
+          "items": 0,
+          "characters": 0
+        },
+        "formula_count": 12,
+        "ranked_contributors": [
+          {
+            "contributor": "xl/styles.xml",
+            "uncompressed_bytes": 4003,
+            "estimated_compressed_bytes": 753,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet cell XML wrappers (refs, styles, tags)",
+            "uncompressed_bytes": 3273,
+            "estimated_compressed_bytes": 827.0,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet data values (<v>/<f>/<is> content)",
+            "uncompressed_bytes": 2888,
+            "estimated_compressed_bytes": 729.7,
+            "estimated": true
+          },
+          {
+            "contributor": "other package parts",
+            "uncompressed_bytes": 2656,
+            "estimated_compressed_bytes": null,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet prefix/cols/tail (merges, validations)",
+            "uncompressed_bytes": 1390,
+            "estimated_compressed_bytes": 351.2,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet header/aggregate rows",
+            "uncompressed_bytes": 1038,
+            "estimated_compressed_bytes": 262.3,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet row wrappers",
+            "uncompressed_bytes": 423,
+            "estimated_compressed_bytes": 106.9,
+            "estimated": true
+          }
+        ]
+      }
+    },
+    {
+      "workload": {
+        "id": "table_typical_values",
+        "family": "table",
+        "rows": 1000,
+        "profile": "typical",
+        "values_only": true,
+        "block": null,
+        "note": "standard table, values"
+      },
+      "final_bytes": {
+        "n": 3,
+        "median": 112485,
+        "min": 112485,
+        "max": 112485
+      },
+      "wall_seconds": {
+        "n": 3,
+        "median": 0.018742,
+        "min": 0.017778400098904967,
+        "max": 0.019868900068104267
+      },
+      "peak_python_heap_bytes": 1293759,
+      "os_peak_working_set_before": 1876566016,
+      "os_peak_working_set_after": 1876566016,
+      "rows": 1002,
+      "columns": 11,
+      "non_empty_cells": 11013,
+      "cells_serialized": 11022,
+      "sheet_count": 2,
+      "formula_count": 0,
+      "shared_strings": {
+        "present": false,
+        "items": 0,
+        "characters": 0
+      },
+      "style_records": {
+        "numFmts": 3,
+        "fonts": 2,
+        "fills": 1,
+        "borders": 2,
+        "cellStyleXfs": 1,
+        "cellXfs": 22,
+        "cellStyles": 1,
+        "duplicate_exact_xfs": 2,
+        "duplicate_near_identical_xfs": 2
+      },
+      "inspection": {
+        "final_bytes": 112485,
+        "zip": {
+          "entry_count": 7,
+          "compressed_bytes_sum": 111555,
+          "uncompressed_bytes_sum": 680560,
+          "compression_ratio": 6.1007,
+          "entries": [
+            {
+              "name": "xl/worksheets/sheet1.xml",
+              "compressed_bytes": 109382,
+              "uncompressed_bytes": 673901,
+              "ratio": 6.161,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/styles.xml",
+              "compressed_bytes": 753,
+              "uncompressed_bytes": 4003,
+              "ratio": 5.3161,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/worksheets/sheet2.xml",
+              "compressed_bytes": 350,
+              "uncompressed_bytes": 577,
+              "ratio": 1.6486,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "[Content_Types].xml",
+              "compressed_bytes": 329,
+              "uncompressed_bytes": 816,
+              "ratio": 2.4802,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/workbook.xml",
+              "compressed_bytes": 303,
+              "uncompressed_bytes": 402,
+              "ratio": 1.3267,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/_rels/workbook.xml.rels",
+              "compressed_bytes": 232,
+              "uncompressed_bytes": 565,
+              "ratio": 2.4353,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "_rels/.rels",
+              "compressed_bytes": 206,
+              "uncompressed_bytes": 296,
+              "ratio": 1.4369,
+              "compression_method": 8,
+              "flag_bits": 8
+            }
+          ],
+          "categories": {
+            "other": {
+              "compressed_bytes": 767,
+              "uncompressed_bytes": 1677,
+              "parts": 3
+            },
+            "workbook": {
+              "compressed_bytes": 303,
+              "uncompressed_bytes": 402,
+              "parts": 1
+            },
+            "styles": {
+              "compressed_bytes": 753,
+              "uncompressed_bytes": 4003,
+              "parts": 1
+            },
+            "worksheets": {
+              "compressed_bytes": 109732,
+              "uncompressed_bytes": 674478,
+              "parts": 2
+            }
+          }
+        },
+        "sheets": {
+          "xl/worksheets/sheet2.xml": {
+            "part": "xl/worksheets/sheet2.xml",
+            "rows_serialized": 4,
+            "data_rows": 2,
+            "header_or_aggregate_rows": 2,
+            "cells_serialized": 4,
+            "non_empty_cells": 4,
+            "styled_empty_cells": 0,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "inline_string": 4
+            },
+            "formula_count": 0,
+            "inline_text_characters": 30,
+            "style_id_counts": {
+              "0": 4
+            },
+            "distinct_style_ids_used": 1,
+            "dimension_ref": null,
+            "dimension_end_row": 4,
+            "actual_last_row": 4,
+            "dimension_end_column_index": 1,
+            "actual_last_column_index": 1,
+            "dimension_inflated": false,
+            "column_definitions": 0,
+            "merge_range_count": 0,
+            "validation_count": 0,
+            "frozen_pane": null,
+            "byte_profile": {
+              "total": 577,
+              "prefix_total": 249,
+              "column_definitions": 0,
+              "header_and_aggregate_rows": 152,
+              "data_rows_total": 152,
+              "data_cell_value_content": 62,
+              "data_cell_wrapper_overhead": 56,
+              "data_row_wrapper_overhead": 34,
+              "tail_total": 24,
+              "merge_cells_block": 0,
+              "validations_block": 0,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 350
+          },
+          "xl/worksheets/sheet1.xml": {
+            "part": "xl/worksheets/sheet1.xml",
+            "rows_serialized": 1002,
+            "data_rows": 1000,
+            "header_or_aggregate_rows": 2,
+            "cells_serialized": 11022,
+            "non_empty_cells": 11013,
+            "styled_empty_cells": 9,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "inline_string": 7011,
+              "styled_empty": 9,
+              "number_or_serial": 4002
+            },
+            "formula_count": 0,
+            "inline_text_characters": 61160,
+            "style_id_counts": {
+              "8": 5000,
+              "13": 3000,
+              "10": 1000,
+              "17": 1000,
+              "19": 1000,
+              "1": 20,
+              "15": 2
+            },
+            "distinct_style_ids_used": 7,
+            "dimension_ref": "A1:K1002",
+            "dimension_end_row": 1002,
+            "actual_last_row": 1002,
+            "dimension_end_column_index": 11,
+            "actual_last_column_index": 11,
+            "dimension_inflated": false,
+            "column_definitions": 11,
+            "merge_range_count": 109,
+            "validation_count": 1,
+            "frozen_pane": {
+              "xSplit": null,
+              "ySplit": "2",
+              "topLeftCell": "A3"
+            },
+            "byte_profile": {
+              "total": 673901,
+              "prefix_total": 927,
+              "column_definitions": 577,
+              "header_and_aggregate_rows": 1006,
+              "data_rows_total": 668744,
+              "data_cell_value_content": 279956,
+              "data_cell_wrapper_overhead": 344889,
+              "data_row_wrapper_overhead": 43899,
+              "tail_total": 3224,
+              "merge_cells_block": 3034,
+              "validations_block": 166,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 109382
+          }
+        },
+        "styles": {
+          "numFmts": 3,
+          "fonts": 2,
+          "fills": 1,
+          "borders": 2,
+          "cellStyleXfs": 1,
+          "cellXfs": 22,
+          "cellStyles": 1,
+          "duplicate_exact_xfs": 2,
+          "duplicate_near_identical_xfs": 2
+        },
+        "shared_strings": {
+          "present": false,
+          "items": 0,
+          "characters": 0
+        },
+        "formula_count": 0,
+        "ranked_contributors": [
+          {
+            "contributor": "sheet cell XML wrappers (refs, styles, tags)",
+            "uncompressed_bytes": 344889,
+            "estimated_compressed_bytes": 55979.5,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet data values (<v>/<f>/<is> content)",
+            "uncompressed_bytes": 279956,
+            "estimated_compressed_bytes": 45440.1,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet row wrappers",
+            "uncompressed_bytes": 43899,
+            "estimated_compressed_bytes": 7125.3,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet prefix/cols/tail (merges, validations)",
+            "uncompressed_bytes": 4151,
+            "estimated_compressed_bytes": 673.8,
+            "estimated": true
+          },
+          {
+            "contributor": "xl/styles.xml",
+            "uncompressed_bytes": 4003,
+            "estimated_compressed_bytes": 753,
+            "estimated": true
+          },
+          {
+            "contributor": "other package parts",
+            "uncompressed_bytes": 2656,
+            "estimated_compressed_bytes": null,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet header/aggregate rows",
+            "uncompressed_bytes": 1006,
+            "estimated_compressed_bytes": 163.3,
+            "estimated": true
+          }
+        ]
+      }
+    },
+    {
+      "workload": {
+        "id": "table_typical_formulas",
+        "family": "table",
+        "rows": 1000,
+        "profile": "typical",
+        "values_only": false,
+        "block": null,
+        "note": "standard table, formulas"
+      },
+      "final_bytes": {
+        "n": 3,
+        "median": 123216,
+        "min": 123216,
+        "max": 123216
+      },
+      "wall_seconds": {
+        "n": 3,
+        "median": 0.020075,
+        "min": 0.019272200064733624,
+        "max": 0.02038359991274774
+      },
+      "peak_python_heap_bytes": 1303101,
+      "os_peak_working_set_before": 1876566016,
+      "os_peak_working_set_after": 1876566016,
+      "rows": 1002,
+      "columns": 11,
+      "non_empty_cells": 11013,
+      "cells_serialized": 11022,
+      "sheet_count": 2,
+      "formula_count": 1002,
+      "shared_strings": {
+        "present": false,
+        "items": 0,
+        "characters": 0
+      },
+      "style_records": {
+        "numFmts": 3,
+        "fonts": 2,
+        "fills": 1,
+        "borders": 2,
+        "cellStyleXfs": 1,
+        "cellXfs": 22,
+        "cellStyles": 1,
+        "duplicate_exact_xfs": 2,
+        "duplicate_near_identical_xfs": 2
+      },
+      "inspection": {
+        "final_bytes": 123216,
+        "zip": {
+          "entry_count": 7,
+          "compressed_bytes_sum": 122286,
+          "uncompressed_bytes_sum": 696398,
+          "compression_ratio": 5.6948,
+          "entries": [
+            {
+              "name": "xl/worksheets/sheet1.xml",
+              "compressed_bytes": 120113,
+              "uncompressed_bytes": 689739,
+              "ratio": 5.7424,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/styles.xml",
+              "compressed_bytes": 753,
+              "uncompressed_bytes": 4003,
+              "ratio": 5.3161,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/worksheets/sheet2.xml",
+              "compressed_bytes": 350,
+              "uncompressed_bytes": 577,
+              "ratio": 1.6486,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "[Content_Types].xml",
+              "compressed_bytes": 329,
+              "uncompressed_bytes": 816,
+              "ratio": 2.4802,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/workbook.xml",
+              "compressed_bytes": 303,
+              "uncompressed_bytes": 402,
+              "ratio": 1.3267,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/_rels/workbook.xml.rels",
+              "compressed_bytes": 232,
+              "uncompressed_bytes": 565,
+              "ratio": 2.4353,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "_rels/.rels",
+              "compressed_bytes": 206,
+              "uncompressed_bytes": 296,
+              "ratio": 1.4369,
+              "compression_method": 8,
+              "flag_bits": 8
+            }
+          ],
+          "categories": {
+            "other": {
+              "compressed_bytes": 767,
+              "uncompressed_bytes": 1677,
+              "parts": 3
+            },
+            "workbook": {
+              "compressed_bytes": 303,
+              "uncompressed_bytes": 402,
+              "parts": 1
+            },
+            "styles": {
+              "compressed_bytes": 753,
+              "uncompressed_bytes": 4003,
+              "parts": 1
+            },
+            "worksheets": {
+              "compressed_bytes": 120463,
+              "uncompressed_bytes": 690316,
+              "parts": 2
+            }
+          }
+        },
+        "sheets": {
+          "xl/worksheets/sheet2.xml": {
+            "part": "xl/worksheets/sheet2.xml",
+            "rows_serialized": 4,
+            "data_rows": 2,
+            "header_or_aggregate_rows": 2,
+            "cells_serialized": 4,
+            "non_empty_cells": 4,
+            "styled_empty_cells": 0,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "inline_string": 4
+            },
+            "formula_count": 0,
+            "inline_text_characters": 30,
+            "style_id_counts": {
+              "0": 4
+            },
+            "distinct_style_ids_used": 1,
+            "dimension_ref": null,
+            "dimension_end_row": 4,
+            "actual_last_row": 4,
+            "dimension_end_column_index": 1,
+            "actual_last_column_index": 1,
+            "dimension_inflated": false,
+            "column_definitions": 0,
+            "merge_range_count": 0,
+            "validation_count": 0,
+            "frozen_pane": null,
+            "byte_profile": {
+              "total": 577,
+              "prefix_total": 249,
+              "column_definitions": 0,
+              "header_and_aggregate_rows": 152,
+              "data_rows_total": 152,
+              "data_cell_value_content": 62,
+              "data_cell_wrapper_overhead": 56,
+              "data_row_wrapper_overhead": 34,
+              "tail_total": 24,
+              "merge_cells_block": 0,
+              "validations_block": 0,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 350
+          },
+          "xl/worksheets/sheet1.xml": {
+            "part": "xl/worksheets/sheet1.xml",
+            "rows_serialized": 1002,
+            "data_rows": 1000,
+            "header_or_aggregate_rows": 2,
+            "cells_serialized": 11022,
+            "non_empty_cells": 11013,
+            "styled_empty_cells": 9,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "inline_string": 7011,
+              "styled_empty": 9,
+              "formula": 1002,
+              "number_or_serial": 3000
+            },
+            "formula_count": 1002,
+            "inline_text_characters": 61160,
+            "style_id_counts": {
+              "8": 5000,
+              "13": 3000,
+              "10": 1000,
+              "17": 1000,
+              "19": 1000,
+              "1": 20,
+              "15": 2
+            },
+            "distinct_style_ids_used": 7,
+            "dimension_ref": "A1:K1002",
+            "dimension_end_row": 1002,
+            "actual_last_row": 1002,
+            "dimension_end_column_index": 11,
+            "actual_last_column_index": 11,
+            "dimension_inflated": false,
+            "column_definitions": 11,
+            "merge_range_count": 109,
+            "validation_count": 1,
+            "frozen_pane": {
+              "xSplit": null,
+              "ySplit": "2",
+              "topLeftCell": "A3"
+            },
+            "byte_profile": {
+              "total": 689739,
+              "prefix_total": 927,
+              "column_definitions": 577,
+              "header_and_aggregate_rows": 1046,
+              "data_rows_total": 684542,
+              "data_cell_value_content": 295754,
+              "data_cell_wrapper_overhead": 344889,
+              "data_row_wrapper_overhead": 43899,
+              "tail_total": 3224,
+              "merge_cells_block": 3034,
+              "validations_block": 166,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 120113
+          }
+        },
+        "styles": {
+          "numFmts": 3,
+          "fonts": 2,
+          "fills": 1,
+          "borders": 2,
+          "cellStyleXfs": 1,
+          "cellXfs": 22,
+          "cellStyles": 1,
+          "duplicate_exact_xfs": 2,
+          "duplicate_near_identical_xfs": 2
+        },
+        "shared_strings": {
+          "present": false,
+          "items": 0,
+          "characters": 0
+        },
+        "formula_count": 1002,
+        "ranked_contributors": [
+          {
+            "contributor": "sheet cell XML wrappers (refs, styles, tags)",
+            "uncompressed_bytes": 344889,
+            "estimated_compressed_bytes": 60059.9,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet data values (<v>/<f>/<is> content)",
+            "uncompressed_bytes": 295754,
+            "estimated_compressed_bytes": 51503.4,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet row wrappers",
+            "uncompressed_bytes": 43899,
+            "estimated_compressed_bytes": 7644.7,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet prefix/cols/tail (merges, validations)",
+            "uncompressed_bytes": 4151,
+            "estimated_compressed_bytes": 722.9,
+            "estimated": true
+          },
+          {
+            "contributor": "xl/styles.xml",
+            "uncompressed_bytes": 4003,
+            "estimated_compressed_bytes": 753,
+            "estimated": true
+          },
+          {
+            "contributor": "other package parts",
+            "uncompressed_bytes": 2656,
+            "estimated_compressed_bytes": null,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet header/aggregate rows",
+            "uncompressed_bytes": 1046,
+            "estimated_compressed_bytes": 182.2,
+            "estimated": true
+          }
+        ]
+      }
+    },
+    {
+      "workload": {
+        "id": "table_large_values",
+        "family": "table",
+        "rows": 10000,
+        "profile": "typical",
+        "values_only": true,
+        "block": null,
+        "note": "long flat table"
+      },
+      "final_bytes": {
+        "n": 3,
+        "median": 1125537,
+        "min": 1125537,
+        "max": 1125537
+      },
+      "wall_seconds": {
+        "n": 3,
+        "median": 0.179384,
+        "min": 0.17785919993184507,
+        "max": 0.18346790014766157
+      },
+      "peak_python_heap_bytes": 2433180,
+      "os_peak_working_set_before": 1876566016,
+      "os_peak_working_set_after": 1876566016,
+      "rows": 10002,
+      "columns": 11,
+      "non_empty_cells": 110013,
+      "cells_serialized": 110022,
+      "sheet_count": 2,
+      "formula_count": 0,
+      "shared_strings": {
+        "present": false,
+        "items": 0,
+        "characters": 0
+      },
+      "style_records": {
+        "numFmts": 3,
+        "fonts": 2,
+        "fills": 1,
+        "borders": 2,
+        "cellStyleXfs": 1,
+        "cellXfs": 22,
+        "cellStyles": 1,
+        "duplicate_exact_xfs": 2,
+        "duplicate_near_identical_xfs": 2
+      },
+      "inspection": {
+        "final_bytes": 1125537,
+        "zip": {
+          "entry_count": 7,
+          "compressed_bytes_sum": 1124607,
+          "uncompressed_bytes_sum": 6849479,
+          "compression_ratio": 6.0906,
+          "entries": [
+            {
+              "name": "xl/worksheets/sheet1.xml",
+              "compressed_bytes": 1122434,
+              "uncompressed_bytes": 6842820,
+              "ratio": 6.0964,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/styles.xml",
+              "compressed_bytes": 753,
+              "uncompressed_bytes": 4003,
+              "ratio": 5.3161,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/worksheets/sheet2.xml",
+              "compressed_bytes": 350,
+              "uncompressed_bytes": 577,
+              "ratio": 1.6486,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "[Content_Types].xml",
+              "compressed_bytes": 329,
+              "uncompressed_bytes": 816,
+              "ratio": 2.4802,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/workbook.xml",
+              "compressed_bytes": 303,
+              "uncompressed_bytes": 402,
+              "ratio": 1.3267,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/_rels/workbook.xml.rels",
+              "compressed_bytes": 232,
+              "uncompressed_bytes": 565,
+              "ratio": 2.4353,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "_rels/.rels",
+              "compressed_bytes": 206,
+              "uncompressed_bytes": 296,
+              "ratio": 1.4369,
+              "compression_method": 8,
+              "flag_bits": 8
+            }
+          ],
+          "categories": {
+            "other": {
+              "compressed_bytes": 767,
+              "uncompressed_bytes": 1677,
+              "parts": 3
+            },
+            "workbook": {
+              "compressed_bytes": 303,
+              "uncompressed_bytes": 402,
+              "parts": 1
+            },
+            "styles": {
+              "compressed_bytes": 753,
+              "uncompressed_bytes": 4003,
+              "parts": 1
+            },
+            "worksheets": {
+              "compressed_bytes": 1122784,
+              "uncompressed_bytes": 6843397,
+              "parts": 2
+            }
+          }
+        },
+        "sheets": {
+          "xl/worksheets/sheet2.xml": {
+            "part": "xl/worksheets/sheet2.xml",
+            "rows_serialized": 4,
+            "data_rows": 2,
+            "header_or_aggregate_rows": 2,
+            "cells_serialized": 4,
+            "non_empty_cells": 4,
+            "styled_empty_cells": 0,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "inline_string": 4
+            },
+            "formula_count": 0,
+            "inline_text_characters": 30,
+            "style_id_counts": {
+              "0": 4
+            },
+            "distinct_style_ids_used": 1,
+            "dimension_ref": null,
+            "dimension_end_row": 4,
+            "actual_last_row": 4,
+            "dimension_end_column_index": 1,
+            "actual_last_column_index": 1,
+            "dimension_inflated": false,
+            "column_definitions": 0,
+            "merge_range_count": 0,
+            "validation_count": 0,
+            "frozen_pane": null,
+            "byte_profile": {
+              "total": 577,
+              "prefix_total": 249,
+              "column_definitions": 0,
+              "header_and_aggregate_rows": 152,
+              "data_rows_total": 152,
+              "data_cell_value_content": 62,
+              "data_cell_wrapper_overhead": 56,
+              "data_row_wrapper_overhead": 34,
+              "tail_total": 24,
+              "merge_cells_block": 0,
+              "validations_block": 0,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 350
+          },
+          "xl/worksheets/sheet1.xml": {
+            "part": "xl/worksheets/sheet1.xml",
+            "rows_serialized": 10002,
+            "data_rows": 10000,
+            "header_or_aggregate_rows": 2,
+            "cells_serialized": 110022,
+            "non_empty_cells": 110013,
+            "styled_empty_cells": 9,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "inline_string": 70011,
+              "styled_empty": 9,
+              "number_or_serial": 40002
+            },
+            "formula_count": 0,
+            "inline_text_characters": 610910,
+            "style_id_counts": {
+              "8": 50000,
+              "13": 30000,
+              "10": 10000,
+              "17": 10000,
+              "19": 10000,
+              "1": 20,
+              "15": 2
+            },
+            "distinct_style_ids_used": 7,
+            "dimension_ref": "A1:K10002",
+            "dimension_end_row": 10002,
+            "actual_last_row": 10002,
+            "dimension_end_column_index": 11,
+            "actual_last_column_index": 11,
+            "dimension_inflated": false,
+            "column_definitions": 11,
+            "merge_range_count": 1009,
+            "validation_count": 1,
+            "frozen_pane": {
+              "xSplit": null,
+              "ySplit": "2",
+              "topLeftCell": "A3"
+            },
+            "byte_profile": {
+              "total": 6842820,
+              "prefix_total": 928,
+              "column_definitions": 577,
+              "header_and_aggregate_rows": 1008,
+              "data_rows_total": 6810657,
+              "data_cell_value_content": 2803833,
+              "data_cell_wrapper_overhead": 3557922,
+              "data_row_wrapper_overhead": 448902,
+              "tail_total": 30227,
+              "merge_cells_block": 30036,
+              "validations_block": 167,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 1122434
+          }
+        },
+        "styles": {
+          "numFmts": 3,
+          "fonts": 2,
+          "fills": 1,
+          "borders": 2,
+          "cellStyleXfs": 1,
+          "cellXfs": 22,
+          "cellStyles": 1,
+          "duplicate_exact_xfs": 2,
+          "duplicate_near_identical_xfs": 2
+        },
+        "shared_strings": {
+          "present": false,
+          "items": 0,
+          "characters": 0
+        },
+        "formula_count": 0,
+        "ranked_contributors": [
+          {
+            "contributor": "sheet cell XML wrappers (refs, styles, tags)",
+            "uncompressed_bytes": 3557922,
+            "estimated_compressed_bytes": 583609.2,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet data values (<v>/<f>/<is> content)",
+            "uncompressed_bytes": 2803833,
+            "estimated_compressed_bytes": 459915.3,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet row wrappers",
+            "uncompressed_bytes": 448902,
+            "estimated_compressed_bytes": 73633.8,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet prefix/cols/tail (merges, validations)",
+            "uncompressed_bytes": 31155,
+            "estimated_compressed_bytes": 5110.4,
+            "estimated": true
+          },
+          {
+            "contributor": "xl/styles.xml",
+            "uncompressed_bytes": 4003,
+            "estimated_compressed_bytes": 753,
+            "estimated": true
+          },
+          {
+            "contributor": "other package parts",
+            "uncompressed_bytes": 2656,
+            "estimated_compressed_bytes": null,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet header/aggregate rows",
+            "uncompressed_bytes": 1008,
+            "estimated_compressed_bytes": 165.3,
+            "estimated": true
+          }
+        ]
+      }
+    },
+    {
+      "workload": {
+        "id": "table_repeated_text",
+        "family": "table",
+        "rows": 2000,
+        "profile": "repeated",
+        "values_only": true,
+        "block": null,
+        "note": "low-cardinality labels"
+      },
+      "final_bytes": {
+        "n": 3,
+        "median": 220777,
+        "min": 220777,
+        "max": 220777
+      },
+      "wall_seconds": {
+        "n": 3,
+        "median": 0.035135,
+        "min": 0.03356559993699193,
+        "max": 0.04540389985777438
+      },
+      "peak_python_heap_bytes": 1328399,
+      "os_peak_working_set_before": 1876566016,
+      "os_peak_working_set_after": 1876566016,
+      "rows": 2002,
+      "columns": 11,
+      "non_empty_cells": 22013,
+      "cells_serialized": 22022,
+      "sheet_count": 2,
+      "formula_count": 0,
+      "shared_strings": {
+        "present": false,
+        "items": 0,
+        "characters": 0
+      },
+      "style_records": {
+        "numFmts": 3,
+        "fonts": 2,
+        "fills": 1,
+        "borders": 2,
+        "cellStyleXfs": 1,
+        "cellXfs": 22,
+        "cellStyles": 1,
+        "duplicate_exact_xfs": 2,
+        "duplicate_near_identical_xfs": 2
+      },
+      "inspection": {
+        "final_bytes": 220777,
+        "zip": {
+          "entry_count": 7,
+          "compressed_bytes_sum": 219847,
+          "uncompressed_bytes_sum": 1343098,
+          "compression_ratio": 6.1092,
+          "entries": [
+            {
+              "name": "xl/worksheets/sheet1.xml",
+              "compressed_bytes": 217674,
+              "uncompressed_bytes": 1336439,
+              "ratio": 6.1396,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/styles.xml",
+              "compressed_bytes": 753,
+              "uncompressed_bytes": 4003,
+              "ratio": 5.3161,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/worksheets/sheet2.xml",
+              "compressed_bytes": 350,
+              "uncompressed_bytes": 577,
+              "ratio": 1.6486,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "[Content_Types].xml",
+              "compressed_bytes": 329,
+              "uncompressed_bytes": 816,
+              "ratio": 2.4802,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/workbook.xml",
+              "compressed_bytes": 303,
+              "uncompressed_bytes": 402,
+              "ratio": 1.3267,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/_rels/workbook.xml.rels",
+              "compressed_bytes": 232,
+              "uncompressed_bytes": 565,
+              "ratio": 2.4353,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "_rels/.rels",
+              "compressed_bytes": 206,
+              "uncompressed_bytes": 296,
+              "ratio": 1.4369,
+              "compression_method": 8,
+              "flag_bits": 8
+            }
+          ],
+          "categories": {
+            "other": {
+              "compressed_bytes": 767,
+              "uncompressed_bytes": 1677,
+              "parts": 3
+            },
+            "workbook": {
+              "compressed_bytes": 303,
+              "uncompressed_bytes": 402,
+              "parts": 1
+            },
+            "styles": {
+              "compressed_bytes": 753,
+              "uncompressed_bytes": 4003,
+              "parts": 1
+            },
+            "worksheets": {
+              "compressed_bytes": 218024,
+              "uncompressed_bytes": 1337016,
+              "parts": 2
+            }
+          }
+        },
+        "sheets": {
+          "xl/worksheets/sheet2.xml": {
+            "part": "xl/worksheets/sheet2.xml",
+            "rows_serialized": 4,
+            "data_rows": 2,
+            "header_or_aggregate_rows": 2,
+            "cells_serialized": 4,
+            "non_empty_cells": 4,
+            "styled_empty_cells": 0,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "inline_string": 4
+            },
+            "formula_count": 0,
+            "inline_text_characters": 30,
+            "style_id_counts": {
+              "0": 4
+            },
+            "distinct_style_ids_used": 1,
+            "dimension_ref": null,
+            "dimension_end_row": 4,
+            "actual_last_row": 4,
+            "dimension_end_column_index": 1,
+            "actual_last_column_index": 1,
+            "dimension_inflated": false,
+            "column_definitions": 0,
+            "merge_range_count": 0,
+            "validation_count": 0,
+            "frozen_pane": null,
+            "byte_profile": {
+              "total": 577,
+              "prefix_total": 249,
+              "column_definitions": 0,
+              "header_and_aggregate_rows": 152,
+              "data_rows_total": 152,
+              "data_cell_value_content": 62,
+              "data_cell_wrapper_overhead": 56,
+              "data_row_wrapper_overhead": 34,
+              "tail_total": 24,
+              "merge_cells_block": 0,
+              "validations_block": 0,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 350
+          },
+          "xl/worksheets/sheet1.xml": {
+            "part": "xl/worksheets/sheet1.xml",
+            "rows_serialized": 2002,
+            "data_rows": 2000,
+            "header_or_aggregate_rows": 2,
+            "cells_serialized": 22022,
+            "non_empty_cells": 22013,
+            "styled_empty_cells": 9,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "inline_string": 14011,
+              "styled_empty": 9,
+              "number_or_serial": 8002
+            },
+            "formula_count": 0,
+            "inline_text_characters": 107993,
+            "style_id_counts": {
+              "8": 10000,
+              "13": 6000,
+              "10": 2000,
+              "17": 2000,
+              "19": 2000,
+              "1": 20,
+              "15": 2
+            },
+            "distinct_style_ids_used": 7,
+            "dimension_ref": "A1:K2002",
+            "dimension_end_row": 2002,
+            "actual_last_row": 2002,
+            "dimension_end_column_index": 11,
+            "actual_last_column_index": 11,
+            "dimension_inflated": false,
+            "column_definitions": 11,
+            "merge_range_count": 209,
+            "validation_count": 1,
+            "frozen_pane": {
+              "xSplit": null,
+              "ySplit": "2",
+              "topLeftCell": "A3"
+            },
+            "byte_profile": {
+              "total": 1336439,
+              "prefix_total": 927,
+              "column_definitions": 577,
+              "header_and_aggregate_rows": 1007,
+              "data_rows_total": 1328281,
+              "data_cell_value_content": 537493,
+              "data_cell_wrapper_overhead": 701889,
+              "data_row_wrapper_overhead": 88899,
+              "tail_total": 6224,
+              "merge_cells_block": 6034,
+              "validations_block": 166,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 217674
+          }
+        },
+        "styles": {
+          "numFmts": 3,
+          "fonts": 2,
+          "fills": 1,
+          "borders": 2,
+          "cellStyleXfs": 1,
+          "cellXfs": 22,
+          "cellStyles": 1,
+          "duplicate_exact_xfs": 2,
+          "duplicate_near_identical_xfs": 2
+        },
+        "shared_strings": {
+          "present": false,
+          "items": 0,
+          "characters": 0
+        },
+        "formula_count": 0,
+        "ranked_contributors": [
+          {
+            "contributor": "sheet cell XML wrappers (refs, styles, tags)",
+            "uncompressed_bytes": 701889,
+            "estimated_compressed_bytes": 114321.0,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet data values (<v>/<f>/<is> content)",
+            "uncompressed_bytes": 537493,
+            "estimated_compressed_bytes": 87544.8,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet row wrappers",
+            "uncompressed_bytes": 88899,
+            "estimated_compressed_bytes": 14479.5,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet prefix/cols/tail (merges, validations)",
+            "uncompressed_bytes": 7151,
+            "estimated_compressed_bytes": 1164.7,
+            "estimated": true
+          },
+          {
+            "contributor": "xl/styles.xml",
+            "uncompressed_bytes": 4003,
+            "estimated_compressed_bytes": 753,
+            "estimated": true
+          },
+          {
+            "contributor": "other package parts",
+            "uncompressed_bytes": 2656,
+            "estimated_compressed_bytes": null,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet header/aggregate rows",
+            "uncompressed_bytes": 1007,
+            "estimated_compressed_bytes": 164.0,
+            "estimated": true
+          }
+        ]
+      }
+    },
+    {
+      "workload": {
+        "id": "table_unique_long_text",
+        "family": "table",
+        "rows": 2000,
+        "profile": "unique_long",
+        "values_only": true,
+        "block": null,
+        "note": "high-cardinality strings"
+      },
+      "final_bytes": {
+        "n": 3,
+        "median": 225499,
+        "min": 225499,
+        "max": 225499
+      },
+      "wall_seconds": {
+        "n": 3,
+        "median": 0.033849,
+        "min": 0.03270209999755025,
+        "max": 0.04550050012767315
+      },
+      "peak_python_heap_bytes": 1674995,
+      "os_peak_working_set_before": 1876566016,
+      "os_peak_working_set_after": 1876566016,
+      "rows": 2002,
+      "columns": 11,
+      "non_empty_cells": 22013,
+      "cells_serialized": 22022,
+      "sheet_count": 2,
+      "formula_count": 0,
+      "shared_strings": {
+        "present": false,
+        "items": 0,
+        "characters": 0
+      },
+      "style_records": {
+        "numFmts": 3,
+        "fonts": 2,
+        "fills": 1,
+        "borders": 2,
+        "cellStyleXfs": 1,
+        "cellXfs": 22,
+        "cellStyles": 1,
+        "duplicate_exact_xfs": 2,
+        "duplicate_near_identical_xfs": 2
+      },
+      "inspection": {
+        "final_bytes": 225499,
+        "zip": {
+          "entry_count": 7,
+          "compressed_bytes_sum": 224569,
+          "uncompressed_bytes_sum": 1834098,
+          "compression_ratio": 8.1672,
+          "entries": [
+            {
+              "name": "xl/worksheets/sheet1.xml",
+              "compressed_bytes": 222396,
+              "uncompressed_bytes": 1827439,
+              "ratio": 8.217,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/styles.xml",
+              "compressed_bytes": 753,
+              "uncompressed_bytes": 4003,
+              "ratio": 5.3161,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/worksheets/sheet2.xml",
+              "compressed_bytes": 350,
+              "uncompressed_bytes": 577,
+              "ratio": 1.6486,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "[Content_Types].xml",
+              "compressed_bytes": 329,
+              "uncompressed_bytes": 816,
+              "ratio": 2.4802,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/workbook.xml",
+              "compressed_bytes": 303,
+              "uncompressed_bytes": 402,
+              "ratio": 1.3267,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/_rels/workbook.xml.rels",
+              "compressed_bytes": 232,
+              "uncompressed_bytes": 565,
+              "ratio": 2.4353,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "_rels/.rels",
+              "compressed_bytes": 206,
+              "uncompressed_bytes": 296,
+              "ratio": 1.4369,
+              "compression_method": 8,
+              "flag_bits": 8
+            }
+          ],
+          "categories": {
+            "other": {
+              "compressed_bytes": 767,
+              "uncompressed_bytes": 1677,
+              "parts": 3
+            },
+            "workbook": {
+              "compressed_bytes": 303,
+              "uncompressed_bytes": 402,
+              "parts": 1
+            },
+            "styles": {
+              "compressed_bytes": 753,
+              "uncompressed_bytes": 4003,
+              "parts": 1
+            },
+            "worksheets": {
+              "compressed_bytes": 222746,
+              "uncompressed_bytes": 1828016,
+              "parts": 2
+            }
+          }
+        },
+        "sheets": {
+          "xl/worksheets/sheet2.xml": {
+            "part": "xl/worksheets/sheet2.xml",
+            "rows_serialized": 4,
+            "data_rows": 2,
+            "header_or_aggregate_rows": 2,
+            "cells_serialized": 4,
+            "non_empty_cells": 4,
+            "styled_empty_cells": 0,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "inline_string": 4
+            },
+            "formula_count": 0,
+            "inline_text_characters": 30,
+            "style_id_counts": {
+              "0": 4
+            },
+            "distinct_style_ids_used": 1,
+            "dimension_ref": null,
+            "dimension_end_row": 4,
+            "actual_last_row": 4,
+            "dimension_end_column_index": 1,
+            "actual_last_column_index": 1,
+            "dimension_inflated": false,
+            "column_definitions": 0,
+            "merge_range_count": 0,
+            "validation_count": 0,
+            "frozen_pane": null,
+            "byte_profile": {
+              "total": 577,
+              "prefix_total": 249,
+              "column_definitions": 0,
+              "header_and_aggregate_rows": 152,
+              "data_rows_total": 152,
+              "data_cell_value_content": 62,
+              "data_cell_wrapper_overhead": 56,
+              "data_row_wrapper_overhead": 34,
+              "tail_total": 24,
+              "merge_cells_block": 0,
+              "validations_block": 0,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 350
+          },
+          "xl/worksheets/sheet1.xml": {
+            "part": "xl/worksheets/sheet1.xml",
+            "rows_serialized": 2002,
+            "data_rows": 2000,
+            "header_or_aggregate_rows": 2,
+            "cells_serialized": 22022,
+            "non_empty_cells": 22013,
+            "styled_empty_cells": 9,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "inline_string": 14011,
+              "styled_empty": 9,
+              "number_or_serial": 8002
+            },
+            "formula_count": 0,
+            "inline_text_characters": 374243,
+            "style_id_counts": {
+              "8": 10000,
+              "13": 6000,
+              "10": 2000,
+              "17": 2000,
+              "19": 2000,
+              "1": 20,
+              "15": 2
+            },
+            "distinct_style_ids_used": 7,
+            "dimension_ref": "A1:K2002",
+            "dimension_end_row": 2002,
+            "actual_last_row": 2002,
+            "dimension_end_column_index": 11,
+            "actual_last_column_index": 11,
+            "dimension_inflated": false,
+            "column_definitions": 11,
+            "merge_range_count": 209,
+            "validation_count": 1,
+            "frozen_pane": {
+              "xSplit": null,
+              "ySplit": "2",
+              "topLeftCell": "A3"
+            },
+            "byte_profile": {
+              "total": 1827439,
+              "prefix_total": 927,
+              "column_definitions": 577,
+              "header_and_aggregate_rows": 1007,
+              "data_rows_total": 1819281,
+              "data_cell_value_content": 1028493,
+              "data_cell_wrapper_overhead": 701889,
+              "data_row_wrapper_overhead": 88899,
+              "tail_total": 6224,
+              "merge_cells_block": 6034,
+              "validations_block": 166,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 222396
+          }
+        },
+        "styles": {
+          "numFmts": 3,
+          "fonts": 2,
+          "fills": 1,
+          "borders": 2,
+          "cellStyleXfs": 1,
+          "cellXfs": 22,
+          "cellStyles": 1,
+          "duplicate_exact_xfs": 2,
+          "duplicate_near_identical_xfs": 2
+        },
+        "shared_strings": {
+          "present": false,
+          "items": 0,
+          "characters": 0
+        },
+        "formula_count": 0,
+        "ranked_contributors": [
+          {
+            "contributor": "sheet data values (<v>/<f>/<is> content)",
+            "uncompressed_bytes": 1028493,
+            "estimated_compressed_bytes": 125165.7,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet cell XML wrappers (refs, styles, tags)",
+            "uncompressed_bytes": 701889,
+            "estimated_compressed_bytes": 85418.6,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet row wrappers",
+            "uncompressed_bytes": 88899,
+            "estimated_compressed_bytes": 10818.8,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet prefix/cols/tail (merges, validations)",
+            "uncompressed_bytes": 7151,
+            "estimated_compressed_bytes": 870.3,
+            "estimated": true
+          },
+          {
+            "contributor": "xl/styles.xml",
+            "uncompressed_bytes": 4003,
+            "estimated_compressed_bytes": 753,
+            "estimated": true
+          },
+          {
+            "contributor": "other package parts",
+            "uncompressed_bytes": 2656,
+            "estimated_compressed_bytes": null,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet header/aggregate rows",
+            "uncompressed_bytes": 1007,
+            "estimated_compressed_bytes": 122.6,
+            "estimated": true
+          }
+        ]
+      }
+    },
+    {
+      "workload": {
+        "id": "table_sparse",
+        "family": "table",
+        "rows": 2000,
+        "profile": "sparse",
+        "values_only": true,
+        "block": null,
+        "note": "mostly absent optional values"
+      },
+      "final_bytes": {
+        "n": 3,
+        "median": 154002,
+        "min": 154002,
+        "max": 154002
+      },
+      "wall_seconds": {
+        "n": 3,
+        "median": 0.029314,
+        "min": 0.026478799991309643,
+        "max": 0.030599499819800258
+      },
+      "peak_python_heap_bytes": 1161909,
+      "os_peak_working_set_before": 1876566016,
+      "os_peak_working_set_after": 1876566016,
+      "rows": 2002,
+      "columns": 11,
+      "non_empty_cells": 8013,
+      "cells_serialized": 22022,
+      "sheet_count": 2,
+      "formula_count": 0,
+      "shared_strings": {
+        "present": false,
+        "items": 0,
+        "characters": 0
+      },
+      "style_records": {
+        "numFmts": 3,
+        "fonts": 2,
+        "fills": 1,
+        "borders": 2,
+        "cellStyleXfs": 1,
+        "cellXfs": 22,
+        "cellStyles": 1,
+        "duplicate_exact_xfs": 2,
+        "duplicate_near_identical_xfs": 2
+      },
+      "inspection": {
+        "final_bytes": 154002,
+        "zip": {
+          "entry_count": 7,
+          "compressed_bytes_sum": 153072,
+          "uncompressed_bytes_sum": 780050,
+          "compression_ratio": 5.096,
+          "entries": [
+            {
+              "name": "xl/worksheets/sheet1.xml",
+              "compressed_bytes": 150899,
+              "uncompressed_bytes": 773391,
+              "ratio": 5.1252,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/styles.xml",
+              "compressed_bytes": 753,
+              "uncompressed_bytes": 4003,
+              "ratio": 5.3161,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/worksheets/sheet2.xml",
+              "compressed_bytes": 350,
+              "uncompressed_bytes": 577,
+              "ratio": 1.6486,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "[Content_Types].xml",
+              "compressed_bytes": 329,
+              "uncompressed_bytes": 816,
+              "ratio": 2.4802,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/workbook.xml",
+              "compressed_bytes": 303,
+              "uncompressed_bytes": 402,
+              "ratio": 1.3267,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/_rels/workbook.xml.rels",
+              "compressed_bytes": 232,
+              "uncompressed_bytes": 565,
+              "ratio": 2.4353,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "_rels/.rels",
+              "compressed_bytes": 206,
+              "uncompressed_bytes": 296,
+              "ratio": 1.4369,
+              "compression_method": 8,
+              "flag_bits": 8
+            }
+          ],
+          "categories": {
+            "other": {
+              "compressed_bytes": 767,
+              "uncompressed_bytes": 1677,
+              "parts": 3
+            },
+            "workbook": {
+              "compressed_bytes": 303,
+              "uncompressed_bytes": 402,
+              "parts": 1
+            },
+            "styles": {
+              "compressed_bytes": 753,
+              "uncompressed_bytes": 4003,
+              "parts": 1
+            },
+            "worksheets": {
+              "compressed_bytes": 151249,
+              "uncompressed_bytes": 773968,
+              "parts": 2
+            }
+          }
+        },
+        "sheets": {
+          "xl/worksheets/sheet2.xml": {
+            "part": "xl/worksheets/sheet2.xml",
+            "rows_serialized": 4,
+            "data_rows": 2,
+            "header_or_aggregate_rows": 2,
+            "cells_serialized": 4,
+            "non_empty_cells": 4,
+            "styled_empty_cells": 0,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "inline_string": 4
+            },
+            "formula_count": 0,
+            "inline_text_characters": 30,
+            "style_id_counts": {
+              "0": 4
+            },
+            "distinct_style_ids_used": 1,
+            "dimension_ref": null,
+            "dimension_end_row": 4,
+            "actual_last_row": 4,
+            "dimension_end_column_index": 1,
+            "actual_last_column_index": 1,
+            "dimension_inflated": false,
+            "column_definitions": 0,
+            "merge_range_count": 0,
+            "validation_count": 0,
+            "frozen_pane": null,
+            "byte_profile": {
+              "total": 577,
+              "prefix_total": 249,
+              "column_definitions": 0,
+              "header_and_aggregate_rows": 152,
+              "data_rows_total": 152,
+              "data_cell_value_content": 62,
+              "data_cell_wrapper_overhead": 56,
+              "data_row_wrapper_overhead": 34,
+              "tail_total": 24,
+              "merge_cells_block": 0,
+              "validations_block": 0,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 350
+          },
+          "xl/worksheets/sheet1.xml": {
+            "part": "xl/worksheets/sheet1.xml",
+            "rows_serialized": 2002,
+            "data_rows": 2000,
+            "header_or_aggregate_rows": 2,
+            "cells_serialized": 22022,
+            "non_empty_cells": 8013,
+            "styled_empty_cells": 14009,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "inline_string": 3511,
+              "styled_empty": 14009,
+              "number_or_serial": 4502
+            },
+            "formula_count": 0,
+            "inline_text_characters": 30160,
+            "style_id_counts": {
+              "8": 10000,
+              "13": 6000,
+              "10": 2000,
+              "19": 2000,
+              "16": 1750,
+              "17": 250,
+              "1": 20,
+              "15": 2
+            },
+            "distinct_style_ids_used": 8,
+            "dimension_ref": "A1:K2002",
+            "dimension_end_row": 2002,
+            "actual_last_row": 2002,
+            "dimension_end_column_index": 11,
+            "actual_last_column_index": 11,
+            "dimension_inflated": false,
+            "column_definitions": 11,
+            "merge_range_count": 209,
+            "validation_count": 1,
+            "frozen_pane": {
+              "xSplit": null,
+              "ySplit": "2",
+              "topLeftCell": "A3"
+            },
+            "byte_profile": {
+              "total": 773391,
+              "prefix_total": 927,
+              "column_definitions": 577,
+              "header_and_aggregate_rows": 1007,
+              "data_rows_total": 765233,
+              "data_cell_value_content": 163445,
+              "data_cell_wrapper_overhead": 512889,
+              "data_row_wrapper_overhead": 88899,
+              "tail_total": 6224,
+              "merge_cells_block": 6034,
+              "validations_block": 166,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 150899
+          }
+        },
+        "styles": {
+          "numFmts": 3,
+          "fonts": 2,
+          "fills": 1,
+          "borders": 2,
+          "cellStyleXfs": 1,
+          "cellXfs": 22,
+          "cellStyles": 1,
+          "duplicate_exact_xfs": 2,
+          "duplicate_near_identical_xfs": 2
+        },
+        "shared_strings": {
+          "present": false,
+          "items": 0,
+          "characters": 0
+        },
+        "formula_count": 0,
+        "ranked_contributors": [
+          {
+            "contributor": "sheet cell XML wrappers (refs, styles, tags)",
+            "uncompressed_bytes": 512889,
+            "estimated_compressed_bytes": 100071.6,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet data values (<v>/<f>/<is> content)",
+            "uncompressed_bytes": 163445,
+            "estimated_compressed_bytes": 31890.3,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet row wrappers",
+            "uncompressed_bytes": 88899,
+            "estimated_compressed_bytes": 17345.4,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet prefix/cols/tail (merges, validations)",
+            "uncompressed_bytes": 7151,
+            "estimated_compressed_bytes": 1395.3,
+            "estimated": true
+          },
+          {
+            "contributor": "xl/styles.xml",
+            "uncompressed_bytes": 4003,
+            "estimated_compressed_bytes": 753,
+            "estimated": true
+          },
+          {
+            "contributor": "other package parts",
+            "uncompressed_bytes": 2656,
+            "estimated_compressed_bytes": null,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet header/aggregate rows",
+            "uncompressed_bytes": 1007,
+            "estimated_compressed_bytes": 196.5,
+            "estimated": true
+          }
+        ]
+      }
+    },
+    {
+      "workload": {
+        "id": "table_nested_formulas",
+        "family": "table",
+        "rows": 2000,
+        "profile": "nested",
+        "values_only": false,
+        "block": null,
+        "note": "3-level headers, hidden lists sheet, merges, alignments, formulas"
+      },
+      "final_bytes": {
+        "n": 3,
+        "median": 248007,
+        "min": 248007,
+        "max": 248007
+      },
+      "wall_seconds": {
+        "n": 3,
+        "median": 0.041805,
+        "min": 0.04175579990260303,
+        "max": 0.04269939986988902
+      },
+      "peak_python_heap_bytes": 1449628,
+      "os_peak_working_set_before": 1876566016,
+      "os_peak_working_set_after": 1876566016,
+      "rows": 2004,
+      "columns": 11,
+      "non_empty_cells": 22026,
+      "cells_serialized": 22044,
+      "sheet_count": 2,
+      "formula_count": 2002,
+      "shared_strings": {
+        "present": false,
+        "items": 0,
+        "characters": 0
+      },
+      "style_records": {
+        "numFmts": 3,
+        "fonts": 2,
+        "fills": 1,
+        "borders": 2,
+        "cellStyleXfs": 1,
+        "cellXfs": 22,
+        "cellStyles": 1,
+        "duplicate_exact_xfs": 2,
+        "duplicate_near_identical_xfs": 2
+      },
+      "inspection": {
+        "final_bytes": 248007,
+        "zip": {
+          "entry_count": 7,
+          "compressed_bytes_sum": 247077,
+          "uncompressed_bytes_sum": 1401273,
+          "compression_ratio": 5.6714,
+          "entries": [
+            {
+              "name": "xl/worksheets/sheet1.xml",
+              "compressed_bytes": 244904,
+              "uncompressed_bytes": 1394614,
+              "ratio": 5.6945,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/styles.xml",
+              "compressed_bytes": 753,
+              "uncompressed_bytes": 4003,
+              "ratio": 5.3161,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/worksheets/sheet2.xml",
+              "compressed_bytes": 350,
+              "uncompressed_bytes": 577,
+              "ratio": 1.6486,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "[Content_Types].xml",
+              "compressed_bytes": 329,
+              "uncompressed_bytes": 816,
+              "ratio": 2.4802,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/workbook.xml",
+              "compressed_bytes": 303,
+              "uncompressed_bytes": 402,
+              "ratio": 1.3267,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "xl/_rels/workbook.xml.rels",
+              "compressed_bytes": 232,
+              "uncompressed_bytes": 565,
+              "ratio": 2.4353,
+              "compression_method": 8,
+              "flag_bits": 8
+            },
+            {
+              "name": "_rels/.rels",
+              "compressed_bytes": 206,
+              "uncompressed_bytes": 296,
+              "ratio": 1.4369,
+              "compression_method": 8,
+              "flag_bits": 8
+            }
+          ],
+          "categories": {
+            "other": {
+              "compressed_bytes": 767,
+              "uncompressed_bytes": 1677,
+              "parts": 3
+            },
+            "workbook": {
+              "compressed_bytes": 303,
+              "uncompressed_bytes": 402,
+              "parts": 1
+            },
+            "styles": {
+              "compressed_bytes": 753,
+              "uncompressed_bytes": 4003,
+              "parts": 1
+            },
+            "worksheets": {
+              "compressed_bytes": 245254,
+              "uncompressed_bytes": 1395191,
+              "parts": 2
+            }
+          }
+        },
+        "sheets": {
+          "xl/worksheets/sheet2.xml": {
+            "part": "xl/worksheets/sheet2.xml",
+            "rows_serialized": 4,
+            "data_rows": 0,
+            "header_or_aggregate_rows": 4,
+            "cells_serialized": 4,
+            "non_empty_cells": 4,
+            "styled_empty_cells": 0,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "inline_string": 4
+            },
+            "formula_count": 0,
+            "inline_text_characters": 30,
+            "style_id_counts": {
+              "0": 4
+            },
+            "distinct_style_ids_used": 1,
+            "dimension_ref": null,
+            "dimension_end_row": 4,
+            "actual_last_row": 4,
+            "dimension_end_column_index": 1,
+            "actual_last_column_index": 1,
+            "dimension_inflated": false,
+            "column_definitions": 0,
+            "merge_range_count": 0,
+            "validation_count": 0,
+            "frozen_pane": null,
+            "byte_profile": {
+              "total": 577,
+              "prefix_total": 249,
+              "column_definitions": 0,
+              "header_and_aggregate_rows": 304,
+              "data_rows_total": 0,
+              "data_cell_value_content": 0,
+              "data_cell_wrapper_overhead": 0,
+              "data_row_wrapper_overhead": 0,
+              "tail_total": 24,
+              "merge_cells_block": 0,
+              "validations_block": 0,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 350
+          },
+          "xl/worksheets/sheet1.xml": {
+            "part": "xl/worksheets/sheet1.xml",
+            "rows_serialized": 2004,
+            "data_rows": 2000,
+            "header_or_aggregate_rows": 4,
+            "cells_serialized": 22044,
+            "non_empty_cells": 22026,
+            "styled_empty_cells": 18,
+            "bare_empty_cells": 0,
+            "value_kinds": {
+              "inline_string": 14024,
+              "styled_empty": 18,
+              "formula": 2002,
+              "number_or_serial": 6000
+            },
+            "formula_count": 2002,
+            "inline_text_characters": 122342,
+            "style_id_counts": {
+              "8": 10000,
+              "13": 6000,
+              "10": 2000,
+              "17": 2000,
+              "19": 2000,
+              "1": 42,
+              "15": 2
+            },
+            "distinct_style_ids_used": 7,
+            "dimension_ref": "A1:K2004",
+            "dimension_end_row": 2004,
+            "actual_last_row": 2004,
+            "dimension_end_column_index": 11,
+            "actual_last_column_index": 11,
+            "dimension_inflated": false,
+            "column_definitions": 11,
+            "merge_range_count": 216,
+            "validation_count": 1,
+            "frozen_pane": {
+              "xSplit": null,
+              "ySplit": "4",
+              "topLeftCell": "A5"
+            },
+            "byte_profile": {
+              "total": 1394614,
+              "prefix_total": 927,
+              "column_definitions": 577,
+              "header_and_aggregate_rows": 2132,
+              "data_rows_total": 1385163,
+              "data_cell_value_content": 594303,
+              "data_cell_wrapper_overhead": 701955,
+              "data_row_wrapper_overhead": 88905,
+              "tail_total": 6392,
+              "merge_cells_block": 6202,
+              "validations_block": 166,
+              "unattributed_body": 0
+            },
+            "compressed_bytes": 244904
+          }
+        },
+        "styles": {
+          "numFmts": 3,
+          "fonts": 2,
+          "fills": 1,
+          "borders": 2,
+          "cellStyleXfs": 1,
+          "cellXfs": 22,
+          "cellStyles": 1,
+          "duplicate_exact_xfs": 2,
+          "duplicate_near_identical_xfs": 2
+        },
+        "shared_strings": {
+          "present": false,
+          "items": 0,
+          "characters": 0
+        },
+        "formula_count": 2002,
+        "ranked_contributors": [
+          {
+            "contributor": "sheet cell XML wrappers (refs, styles, tags)",
+            "uncompressed_bytes": 701955,
+            "estimated_compressed_bytes": 123268.2,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet data values (<v>/<f>/<is> content)",
+            "uncompressed_bytes": 594303,
+            "estimated_compressed_bytes": 104363.8,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet row wrappers",
+            "uncompressed_bytes": 88905,
+            "estimated_compressed_bytes": 15612.3,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet prefix/cols/tail (merges, validations)",
+            "uncompressed_bytes": 7319,
+            "estimated_compressed_bytes": 1285.3,
+            "estimated": true
+          },
+          {
+            "contributor": "xl/styles.xml",
+            "uncompressed_bytes": 4003,
+            "estimated_compressed_bytes": 753,
+            "estimated": true
+          },
+          {
+            "contributor": "other package parts",
+            "uncompressed_bytes": 2656,
+            "estimated_compressed_bytes": null,
+            "estimated": true
+          },
+          {
+            "contributor": "sheet header/aggregate rows",
+            "uncompressed_bytes": 2132,
+            "estimated_compressed_bytes": 374.4,
+            "estimated": true
+          }
+        ]
+      }
+    }
+  ]
+}
