@@ -1,0 +1,187 @@
+{
+  "uid": "rc-load-baseline",
+  "title": "ReportCollector · Load baseline",
+  "description": "On-demand k6 load-run companion dashboard. Uses only metrics already exported by back/src/metrics.py; k6 trends are kept in k6 artifacts, not Prometheus. See docs/LOAD-BASELINE.md and docs/LOAD-PROFILES.md.",
+  "tags": ["reportcollector", "collab", "load"],
+  "timezone": "browser",
+  "editable": true,
+  "schemaVersion": 39,
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "15s",
+  "templating": {
+    "list": [
+      {
+        "name": "section",
+        "label": "Form",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+        "query": "label_values(ws_events_relayed_total, room_section)",
+        "includeAll": true,
+        "multi": true,
+        "refresh": 2,
+        "current": { "selected": true, "text": ["All"], "value": ["$__all"] }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Peak WS connections",
+      "description": "Peak concurrent sockets during the run. Compare with the ASSUMPTION of 300 in docs/LOAD-PROFILES.md.",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [{ "expr": "max_over_time(ws_connections_active[1h])", "legendFormat": "connections", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value" }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Relayed events/s",
+      "description": "Room fan-out. Presence snapshots are O(N) queue puts per heartbeat, so this rises sharply with room size.",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [
+        { "expr": "sum(rate(ws_events_relayed_total{room_section=~\"$section\"}[1m]))", "legendFormat": "events/s", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "decimals": 2,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value" }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Slow consumers (1h)",
+      "description": "Clients deliberately disconnected for a full outbound queue. Each case forces a resync; correlate with reconnect runs.",
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [
+        { "expr": "sum(increase(ws_slow_consumers_total{room_section=~\"$section\"}[1h]))", "legendFormat": "dropped", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 1 },
+              { "color": "red", "value": 10 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value" }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "DB connections in use",
+      "description": "Cross-check against the sampled pg_stat_activity range in docs/LOAD-BASELINE.md.",
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [{ "expr": "max_over_time(db_connections_in_use[1h])", "legendFormat": "connections", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value" }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Inbound WS messages by type",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [
+        { "expr": "sum by (message_type) (rate(ws_messages_total{room_section=~\"$section\"}[30s]))", "legendFormat": "{{message_type}}", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Relay backlog: queue depth and writer lag p95",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [
+        { "expr": "sum by (room_section) (ws_queue_depth{room_section=~\"$section\"})", "legendFormat": "queue {{room_section}}", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum by (le, room_section) (rate(ws_writer_lag_seconds_bucket{room_section=~\"$section\"}[5m])))", "legendFormat": "p95 writer {{room_section}}", "refId": "B" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": [{ "matcher": { "id": "byFrameRefID", "options": "B" }, "properties": [{ "id": "unit", "value": "s" }, { "id": "custom.axisPlacement", "value": "right" }] }]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Valkey operation p95 and subscription failures",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(valkey_operation_duration_seconds_bucket[5m])))", "legendFormat": "p95 {{operation}}", "refId": "A" },
+        { "expr": "sum(rate(valkey_subscription_failures_total[5m]))", "legendFormat": "subscription failures/s", "refId": "B" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s" },
+        "overrides": [{ "matcher": { "id": "byFrameRefID", "options": "B" }, "properties": [{ "id": "unit", "value": "ops" }, { "id": "custom.axisPlacement", "value": "right" }] }]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Edit and undo HTTP p95",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le, route) (rate(http_request_duration_seconds_bucket{route=~\"/api/raw-materials/(movement|prices|undo|redo)\"}[5m])))", "legendFormat": "p95 {{route}}", "refId": "A" },
+        { "expr": "sum by (route, status) (rate(http_requests_total{route=~\"/api/raw-materials/(movement|prices|undo|redo)\"}[1m]))", "legendFormat": "{{route}} {{status}}", "refId": "B" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s" },
+        "overrides": [{ "matcher": { "id": "byFrameRefID", "options": "B" }, "properties": [{ "id": "unit", "value": "reqps" }, { "id": "custom.axisPlacement", "value": "right" }] }]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Room membership and disconnects",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "reportcollector-prometheus" },
+      "targets": [
+        { "expr": "sum by (room_section) (ws_room_members{room_section=~\"$section\"})", "legendFormat": "members {{room_section}}", "refId": "A" },
+        { "expr": "sum by (room_section, reason) (rate(ws_disconnects_total{room_section=~\"$section\"}[1m]))", "legendFormat": "{{room_section}} / {{reason}}", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } }
+    }
+  ]
+}

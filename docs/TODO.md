@@ -177,7 +177,13 @@ different milestones. Do not reopen the explicit product deferrals below.
   admission limits, and measure inbound authorization latency. Application
   message limits do not prevent ASGI from materializing a frame; configure and
   verify transport/proxy limits too. Current member gauges sum by section, not
-  individual room size; keep IDs out of metric labels.
+  individual room size; keep IDs out of metric labels. **Partial evidence (2026-11-27):**
+  the native-k6 suite in `load/` measured join/lease/edit/presence/undo/reconnect
+  paths on the disposable CI stand — `docs/LOAD-BASELINE.md`. SCALED-DOWN runs
+  reached 200 clients in one room (6106–6218 presence updates/s) and 50-client
+  churn (hello p99 2.67 s at N=50/30 s). The 300-client target is NOT certified:
+  an N=500 attempt failed with 12 local-login HTTP 500 errors. Multi-replica,
+  proxy and admission-limit work remains open.
 - [ ] Add operational runbooks for stuck jobs, DB pool/locks, Valkey failure,
   disk pressure, API/worker restart and failed migrations. Calibrate file/Loki
   retention and sample successful high-volume logs; retain errors and request IDs.
@@ -311,7 +317,12 @@ of in a separate brief.
   retention, redaction and access policy with the organization.
 - [ ] **Load/stress certification** — representative large files/dataset,
   concurrent users, multiple replicas, worker crashes, dependency failures,
-  performance percentiles, capacity/SLO definition.
+  performance percentiles, capacity/SLO definition. **Not certified.** The
+  2026-11-27 SCALED-DOWN k6 baseline (`docs/LOAD-BASELINE.md`) provides measured
+  percentiles for five collaboration workloads on the disposable CI stand;
+  all capacity inputs remain ASSUMPTIONS (`docs/LOAD-PROFILES.md`). Open: 300
+  concurrent clients, distributed rooms, multiple replicas, proxy/TLS path,
+  Argon2 login bursts (N=500 failed), worker crashes and dependency failures.
 - [ ] **Full archive-to-archive plan diff** — currently not connected to a
   user-facing workflow; revisit when product scope requires it.
 - [x] **Gate A — import/edit conflict policy — IMPLEMENTED (2026-11-25).** While an
