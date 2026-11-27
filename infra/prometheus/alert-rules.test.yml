@@ -61,3 +61,104 @@ tests:
               description: >-
                 Все доступные соединения заняты (включая разрешённый overflow). Проверьте
                 ожидание пула, длительные транзакции и фоновые импорты/выгрузки.
+
+  # PostgreSQL backup contract: age gauges are emitted by the sidecar at scrape
+  # time, so these tests stay independent of wall-clock time().
+  - interval: 30s
+    input_series:
+      - series: 'pg_backup_last_success_age_seconds{job="reportcollector-pg-backup",env="local"}'
+        values: '100+0x3'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: PgBackupOverdue
+        exp_alerts: []
+
+  - interval: 30s
+    input_series:
+      - series: 'pg_backup_last_success_age_seconds{job="reportcollector-pg-backup",env="local"}'
+        values: '100000+0x3'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: PgBackupOverdue
+        exp_alerts:
+          - exp_labels:
+              job: reportcollector-pg-backup
+              env: local
+              severity: critical
+            exp_annotations:
+              summary: "Нет успешного бекапа PostgreSQL более 25 часов"
+              description: >-
+                Нарушено принятое RPO ≤ 24 ч. Выполните `just backup-now`, проверьте
+                доступность PostgreSQL и free space в volume rc-postgres-backups.
+                Процедура — docs/RUNBOOKS.md.
+
+  - interval: 30s
+    input_series:
+      - series: 'pg_backup_runs_total{job="reportcollector-pg-backup",outcome="failure"}'
+        values: '0+1x12'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: PgBackupFailed
+        exp_alerts:
+          - exp_labels:
+              job: reportcollector-pg-backup
+              outcome: failure
+              severity: warning
+            exp_annotations:
+              summary: "Не удалось сделать бекап PostgreSQL"
+              description: >-
+                pg_dump, проверка дампа, retain или off-host копирование вернули
+                ненулевой код. Смотрите метрику pg_backup_last_failure_timestamp_seconds
+                по label operation и причину в логах контейнера pgbackup.
+
+  - interval: 30s
+    input_series:
+      - series: 'pg_backup_drill_last_failure_age_seconds{job="reportcollector-pg-backup"}'
+        values: '100+0x3'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: PgRestoreDrillFailed
+        exp_alerts:
+          - exp_labels:
+              job: reportcollector-pg-backup
+              severity: warning
+            exp_annotations:
+              summary: "Репетиция восстановления PostgreSQL провалилась"
+              description: >-
+                pg_restore в scratch-БД или проверка alembic_version не прошли.
+                Бекап может быть невосстанавливаемым: разберитесь до следующего
+                запланированного drill и повторите `just backup-drill`.
+
+  - interval: 30s
+    input_series:
+      - series: 'pg_backup_drill_last_success_age_seconds{job="reportcollector-pg-backup"}'
+        values: '700000+0x3'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: PgRestoreDrillOverdue
+        exp_alerts:
+          - exp_labels:
+              job: reportcollector-pg-backup
+              severity: warning
+            exp_annotations:
+              summary: "Нет успешной репетиции восстановления более 8 дней"
+              description: >-
+                Еженедельный drill не выполнялся. Проверьте, что pgbackup запущен
+                и что роль postgres может создавать/удалять scratch-БД (CREATEDB).
+
+  - interval: 30s
+    input_series:
+      - series: 'up{job="reportcollector-pg-backup"}'
+        values: '0+0x22'
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: PgBackupExporterDown
+        exp_alerts:
+          - exp_labels:
+              job: reportcollector-pg-backup
+              severity: warning
+            exp_annotations:
+              summary: "ReportCollector: сервис backup-а недоступен"
+              description: >-
+                Prometheus не скрапит pgbackup. Проверьте контейнер и сеть net;
+                пока он не работает, бекапы и drills не выполняются.

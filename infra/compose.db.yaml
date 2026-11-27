@@ -48,6 +48,46 @@ services:
       timeout: 5s
       retries: 5
 
+  # Logical backup sidecar: daily pg_dump into a dedicated volume, weekly
+  # restore drill into a scratch DB. Deliberately NOT in `just db-stand`'s
+  # explicit service list — start it with `just backup-stand` (or on prod with
+  # the same service name). No host port: Prometheus scrapes it on `net`.
+  pgbackup:
+    build:
+      context: ./backup
+      dockerfile: Dockerfile
+    container_name: rc-pgbackup
+    restart: unless-stopped
+    environment:
+      # Inside compose use the postgres service name; for an external prod DB
+      # set POSTGRES_HOST_DOCKER to its address (same escape hatch as `back`).
+      POSTGRES_HOST: ${POSTGRES_HOST_DOCKER:-postgres}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${POSTGRES_USER:?Нужно указать POSTGRES_USER в окружении или .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Нужно указать POSTGRES_PASSWORD в окружении или .env}
+      POSTGRES_DB: ${POSTGRES_DB:?Нужно указать POSTGRES_DB в окружении или .env}
+      POSTGRES_SCHEMA: ${POSTGRES_SCHEMA:?Нужно указать POSTGRES_SCHEMA в окружении или .env}
+      BACKUP_DIR: /var/backups/reportcollector
+      BACKUP_HOUR_UTC: ${BACKUP_HOUR_UTC:-2}
+      BACKUP_RETENTION_COUNT: ${BACKUP_RETENTION_COUNT:-7}
+      BACKUP_DRILL_WEEKDAY: ${BACKUP_DRILL_WEEKDAY:-6}
+      BACKUP_DRILL_HOUR_UTC: ${BACKUP_DRILL_HOUR_UTC:-3}
+      # Optional: a command template with one `{file}` token, e.g.
+      # `aws s3 cp {file} s3://bucket/prefix/` or `rsync -a {file} host:/dir/`.
+      # Empty means the off-host requirement is NOT satisfied; see docs/RUNBOOKS.md.
+      BACKUP_OFFHOST_TARGET: ${BACKUP_OFFHOST_TARGET:-}
+      BACKUP_METRICS_PORT: "9113"
+    volumes:
+      - postgres-backups:/var/backups/reportcollector
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9113/healthz', timeout=5).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks: [net]
+
 volumes:
   postgres-data:
     name: rc-postgres-data
+  postgres-backups:
+    name: rc-postgres-backups

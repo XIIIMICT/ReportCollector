@@ -208,3 +208,71 @@ groups:
         annotations:
           summary: "ReportCollector: Grafana недоступна"
           description: "Дашборды «ReportCollector · Сервис/Ошибки/Сотрудничество» недоступны; логи по-прежнему в Loki."
+
+  # PostgreSQL backups. The age gauges are computed by the sidecar at scrape
+  # time, so no `time()` arithmetic is needed here and promtool can test them
+  # with constant series. The exporter has no host publication: scrape by the
+  # `reportcollector-pg-backup` job only. Names/labels are documented in
+  # docs/RUNBOOKS.md, «Monitoring contract».
+  - name: reportcollector_pg_backup
+    interval: 30s
+    rules:
+      - alert: PgBackupExporterDown
+        expr: up{job="reportcollector-pg-backup"} == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ReportCollector: сервис backup-а недоступен"
+          description: >-
+            Prometheus не скрапит pgbackup. Проверьте контейнер и сеть net;
+            пока он не работает, бекапы и drills не выполняются.
+
+      - alert: PgBackupFailed
+        expr: increase(pg_backup_runs_total{outcome="failure",job="reportcollector-pg-backup"}[6h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Не удалось сделать бекап PostgreSQL"
+          description: >-
+            pg_dump, проверка дампа, retain или off-host копирование вернули
+            ненулевой код. Смотрите метрику pg_backup_last_failure_timestamp_seconds
+            по label operation и причину в логах контейнера pgbackup.
+
+      - alert: PgBackupOverdue
+        # 25 h = daily schedule (RPO <= 24 h) plus one hour of slack.
+        expr: pg_backup_last_success_age_seconds{job="reportcollector-pg-backup"} > 90000
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Нет успешного бекапа PostgreSQL более 25 часов"
+          description: >-
+            Нарушено принятое RPO ≤ 24 ч. Выполните `just backup-now`, проверьте
+            доступность PostgreSQL и free space в volume rc-postgres-backups.
+            Процедура — docs/RUNBOOKS.md.
+
+      - alert: PgRestoreDrillFailed
+        expr: pg_backup_drill_last_failure_age_seconds{job="reportcollector-pg-backup"} < 86400
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Репетиция восстановления PostgreSQL провалилась"
+          description: >-
+            pg_restore в scratch-БД или проверка alembic_version не прошли.
+            Бекап может быть невосстанавливаемым: разберитесь до следующего
+            запланированного drill и повторите `just backup-drill`.
+
+      - alert: PgRestoreDrillOverdue
+        # Weekly cadence (7 d) plus one day of slack.
+        expr: pg_backup_drill_last_success_age_seconds{job="reportcollector-pg-backup"} > 691200
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Нет успешной репетиции восстановления более 8 дней"
+          description: >-
+            Еженедельный drill не выполнялся. Проверьте, что pgbackup запущен
+            и что роль postgres может создавать/удалять scratch-БД (CREATEDB).
