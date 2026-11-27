@@ -92,6 +92,37 @@ end
 return 0
 """
 
+# Batched lease operations over the whole dirty-cell set of one WS message.
+# Acquisition stays per-cell non-atomic: the caller still gets a granted/denied
+# verdict for every cell, exactly as with one SET NX EX + GET per cell. An empty
+# string marks a granted cell (no owner JSON can be empty); a denied cell returns
+# the conflicting owner verbatim, so ownership checks remain byte-identical.
+# Release likewise returns one 0/1 verdict per cell instead of failing the batch.
+_BATCH_ACQUIRE_LEASE_SCRIPT = """
+local result = {}
+for i, key in ipairs(KEYS) do
+    local acquired = redis.call('SET', key, ARGV[1], 'NX', 'EX', ARGV[2])
+    if acquired then
+        result[i] = ''
+    else
+        result[i] = redis.call('GET', key) or ''
+    end
+end
+return result
+"""
+
+_BATCH_RELEASE_LEASE_SCRIPT = """
+local result = {}
+for i, key in ipairs(KEYS) do
+    if redis.call('GET', key) == ARGV[1] then
+        result[i] = redis.call('DEL', key)
+    else
+        result[i] = 0
+    end
+end
+return result
+"""
+
 _RATE_LIMIT_SCRIPT = """
 local existing = tonumber(redis.call('GET', KEYS[1]) or '0')
 if existing >= tonumber(ARGV[2]) then return existing + 1 end
@@ -201,6 +232,10 @@ class ValkeyStore:
             **connection_options,
             socket_timeout=None,
         )
+        # register_script computes the SHA1 locally and retries with SCRIPT LOAD
+        # on NOSCRIPT (one deterministic fallback per script after FLUSH/restart).
+        self._batch_acquire = self._redis.register_script(_BATCH_ACQUIRE_LEASE_SCRIPT)
+        self._batch_release = self._redis.register_script(_BATCH_RELEASE_LEASE_SCRIPT)
 
     async def close(self) -> None:
         await self._redis.aclose()
@@ -218,6 +253,14 @@ class ValkeyStore:
         return _decode(raw) if raw else None
 
     @measured_valkey
+    async def acquire_leases(self, keys: list[str], owner: dict, *, ttl: int = LEASE_TTL_SECONDS) -> list[dict | None]:
+        """Acquire a whole dirty-cell set in one round trip; None means granted."""
+        if not keys:
+            return []
+        results = await self._batch_acquire(keys=keys, args=(_encode(owner), ttl))
+        return [None if value == "" else _decode(value) for value in results]
+
+    @measured_valkey
     async def renew_lease(self, key: str, owner: dict, *, ttl: int = LEASE_TTL_SECONDS) -> bool:
         """Renews a lease if the owner is unchanged."""
         return bool(await self._redis.eval(_RENEW_LEASE_SCRIPT, 1, key, _encode(owner), ttl))
@@ -226,6 +269,14 @@ class ValkeyStore:
     async def release_lease(self, key: str, owner: dict) -> bool:
         """Releases a lease if the owner is unchanged."""
         return bool(await self._redis.eval(_RELEASE_LEASE_SCRIPT, 1, key, _encode(owner)))
+
+    @measured_valkey
+    async def release_leases(self, keys: list[str], owner: dict) -> list[bool]:
+        """Release a whole dirty-cell set in one round trip, one verdict per cell."""
+        if not keys:
+            return []
+        results = await self._batch_release(keys=keys, args=(_encode(owner),))
+        return [bool(value) for value in results]
 
     @measured_valkey
     async def get_lease(self, key: str) -> dict | None:
@@ -453,12 +504,19 @@ class MemoryStore:
 
     async def acquire_lease(self, key: str, owner: dict, *, ttl: int = LEASE_TTL_SECONDS) -> dict | None:
         async with self._lock:
-            expires_at = time.monotonic() + ttl
-            current = self._leases.get(key)
-            if current is not None and current[1] > time.monotonic():
-                return current[0]
-            self._leases[key] = (owner, expires_at)
-            return None
+            return self._acquire_locked(key, owner, ttl=ttl)
+
+    def _acquire_locked(self, key: str, owner: dict, *, ttl: int) -> dict | None:
+        expires_at = time.monotonic() + ttl
+        current = self._leases.get(key)
+        if current is not None and current[1] > time.monotonic():
+            return current[0]
+        self._leases[key] = (owner, expires_at)
+        return None
+
+    async def acquire_leases(self, keys: list[str], owner: dict, *, ttl: int = LEASE_TTL_SECONDS) -> list[dict | None]:
+        async with self._lock:
+            return [self._acquire_locked(key, owner, ttl=ttl) for key in keys]
 
     async def renew_lease(self, key: str, owner: dict, *, ttl: int = LEASE_TTL_SECONDS) -> bool:
         async with self._lock:
@@ -470,11 +528,18 @@ class MemoryStore:
 
     async def release_lease(self, key: str, owner: dict) -> bool:
         async with self._lock:
-            current = self._leases.get(key)
-            if current is None or current[0] != owner:
-                return False
-            del self._leases[key]
-            return True
+            return self._release_locked(key, owner)
+
+    def _release_locked(self, key: str, owner: dict) -> bool:
+        current = self._leases.get(key)
+        if current is None or current[0] != owner:
+            return False
+        del self._leases[key]
+        return True
+
+    async def release_leases(self, keys: list[str], owner: dict) -> list[bool]:
+        async with self._lock:
+            return [self._release_locked(key, owner) for key in keys]
 
     async def get_lease(self, key: str) -> dict | None:
         async with self._lock:

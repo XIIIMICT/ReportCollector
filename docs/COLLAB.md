@@ -83,6 +83,8 @@ Result: walked away (tab open) → after ~2 min leases are released, "online" fa
 
 Both stores (`ValkeyStore`, `MemoryStore`) implement one interface; the choice depends on `VALKEY_URL` (empty = memory). Lua scripts guarantee owner checks for renew/release.
 
+`lease:acquire` and `lease:release` use **one EVALSHA per message** over the whole cell set (`acquire_leases` / `release_leases`); NOSCRIPT triggers one deterministic `SCRIPT LOAD` retry. Partial grants/denials, the 20 s per-cell TTL, owner equality, per-cell `cell:locked`/`cell:unlocked` events and the Russian error frames are unchanged; `lease:renew` and disconnect cleanup stay per-cell. The fencing token is still the PostgreSQL `collab_action_id_seq` → `lastActionId` — Valkey leases carry only the owner dict. Measurements and the verified model — `docs/LEASE-BATCHING.md`.
+
 ## What blocks what (lock semantics)
 
 - **`remoteLocks`** — cells **leased** by another user (they're editing): block starting an edit, saving an edit, pasting/cutting a range (such cells are skipped with a «ячейка занята» toast), the paste button.

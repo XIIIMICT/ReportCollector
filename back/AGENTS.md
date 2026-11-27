@@ -63,7 +63,10 @@ contracts. Keep one home per fact.
 6. **Presence vs lease:** lease TTL 20 s / renew 10 s = editing; presence TTL
    25 s / heartbeat 15 s = online. Idle >2 min or hidden tab → leases released
    and heartbeat stopped; on return, re-join via ping. Archive «Движение» is
-   read-only: no editing, no presence.
+   read-only: no editing, no presence. Acquire/release batch the whole cell set
+   into one EVALSHA (NOSCRIPT → one SCRIPT LOAD); partial grants and owner
+   checks stay unchanged. The fencing token is PostgreSQL `collab_action_id_seq`
+   → `lastActionId`, never a Valkey lease value — see `docs/LEASE-BATCHING.md`.
 7. **«Пользователи» & self-provisioning:** an admin's addition appears in all
    projects (`is_active=false` elsewhere). A user self-registers into ONE
    project by opening its URL; the root URL never provisions anyone (`GET

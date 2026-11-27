@@ -116,6 +116,7 @@ picks another interpreter (use `uv run pytest`); `npx` picks another resolver.
 - `docs/TODO.md` — the single engineering backlog and product deferrals.
 - `docs/LOAD-PROFILES.md` — ASSUMPTION-only target load profiles (no usage data).
 - `docs/LOAD-BASELINE.md` — measured SCALED-DOWN k6 baseline, exact commands and caveats; suite in `load/`, on-demand workflow `.github/workflows/load-baseline.yaml`.
+- `docs/LEASE-BATCHING.md` — verified lease/token model, batched EVALSHA semantics and before/after k6 measurements.
 - `docs/RUNBOOKS.md` — PostgreSQL backup/restore runbook: schedule, retention,
   RPO assumption, drill cadence, off-host config, monitoring contract and alert response.
 - `docs/LIMITS.md` — owner-approved Phase 9 limit decisions.
