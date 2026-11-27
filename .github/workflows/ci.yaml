@@ -228,8 +228,11 @@ jobs:
     timeout-minutes: 25
     env:
       E2E_BASE_URL: http://127.0.0.1:15000
-      # Isolated-stand-only credential, per run. Shared by the seed step and
-      # the browser smoke step; never a production secret.
+      # Isolated-stand-only credential, generated per run. Shared by the seed
+      # step and the browser smoke step; never a production secret and never
+      # written to a repo file or an artifact. No AUTH_SEED_ADMIN_* is passed:
+      # local-auth smoke tests use only the reserved user1..user4@test.local
+      # accounts created by the seed.
       E2E_TEST_PASSWORD: ${{ format('e2e-{0}', github.run_id) }}
     steps:
       - uses: actions/checkout@v7

@@ -8,8 +8,9 @@ x-back-env: &back-env
   POSTGRES_PORT: "5432"
   POSTGRES_SCHEMA: rc
   AUTH_SECRET: ci-only-secret-at-least-32-characters-long
-  AUTH_SEED_ADMIN_EMAIL: evtushenko.sn@ruschem.ru
-  AUTH_SEED_ADMIN_PASSWORD: TestPassword123
+  # No AUTH_SEED_ADMIN_EMAIL/PASSWORD on purpose: this stand has no
+  # corporate-looking local login. CI generates a per-run E2E_TEST_PASSWORD for
+  # the four reserved user1..user4@test.local accounts (see the workflow).
   KEYCLOAK_ENABLED: "false"
   # Every browser test signs in anew; the production default of 20/min would
   # rate-limit a sequential 43-test smoke run with HTTP 429.
