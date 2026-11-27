@@ -4,7 +4,7 @@ import type { Page } from "@playwright/test";
  * Origin, на который указывает AUTH_APP_ORIGIN: после локального входа
  * 303-редирект ведёт именно туда, поэтому и форму открываем на нём.
  */
-const LOCAL_APP_ORIGIN = process.env.E2E_BASE_URL ?? "http://127.0.0.1:5000";
+const LOCAL_APP_ORIGIN = process.env.E2E_BASE_URL ?? "https://127.0.0.1";
 
 /**
  * Log in via the local password login page

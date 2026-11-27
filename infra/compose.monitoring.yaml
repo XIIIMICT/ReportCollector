@@ -34,7 +34,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "12345:12345"
+      - "127.0.0.1:12345:12345"
 
   loki:
     container_name: rc-loki
@@ -49,7 +49,7 @@ services:
       - loki-data:/loki
     networks: [net, net-dev]
     ports:
-      - "3100:3100"
+      - "127.0.0.1:3100:3100"
 
   prometheus:
     container_name: rc-prometheus
@@ -58,7 +58,9 @@ services:
     # entrypoint.sh renders the scrape template (BACKEND_PORT is NOT hardcoded
     # any more) and passes the configurable retention flag to Prometheus.
     environment:
-      BACKEND_METRICS_HOST: ${BACKEND_METRICS_HOST:-host.docker.internal}
+      # The backend is no longer published on the host: scrape it by service
+      # name on `net` (`back-dev` when running the dev profile).
+      BACKEND_METRICS_HOST: ${BACKEND_METRICS_HOST:-back}
       BACKEND_PORT: ${BACKEND_PORT:?BACKEND_PORT is required}
       LOG_ENV: ${LOG_ENV:-local}
       PROMETHEUS_RETENTION: ${PROMETHEUS_RETENTION:-15d}
@@ -74,7 +76,7 @@ services:
       - "host.docker.internal:host-gateway"
     networks: [net, net-dev]
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
 
   alertmanager:
     container_name: rc-alertmanager
@@ -95,7 +97,7 @@ services:
     entrypoint: ["/bin/sh", "/entrypoint.sh"]
     networks: [net, net-dev]
     ports:
-      - "9093:9093"
+      - "127.0.0.1:9093:9093"
 
   # Local SMTP relay: Alertmanager uses plain SMTP to it inside the private
   # compose network; the relay authenticates to the corporate SMTP via STARTTLS.
@@ -128,7 +130,7 @@ services:
       - loki
     networks: [net]
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
 
 volumes:
   loki-data:

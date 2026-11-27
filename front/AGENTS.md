@@ -57,7 +57,7 @@ live in `back/AGENTS.md`; contracts in `docs/API.md`, `docs/COLLAB.md`,
 - `git status` + branch before git operations; no commit/push without explicit
   request; UTF-8/no BOM/LF.
 - `just dev` syncs a running stack via compose `--watch` — never `docker cp`.
-- e2e needs a running prepared stack, `KEYCLOAK_ENABLED=false`, workers=1.
+- e2e needs a running prepared stack, `KEYCLOAK_ENABLED=false`, workers=1. Local origin is the reverse proxy `https://127.0.0.1` (self-signed cert allowed in `playwright.config.ts`); CI overrides it with the isolated stand's `http://127.0.0.1:15000`. App ports 5000/8000 are not published on the host — see `docs/ARCHITECTURE.md`, «Published-port contract».
 - **E2e identities and fixtures:** smoke specs resolve all credentials through
   `e2e/helpers/test-users.ts` — reserved `user1@test.local` … `user4@test.local`
   and the shared `E2E_TEST_PASSWORD` env var (placeholder in root

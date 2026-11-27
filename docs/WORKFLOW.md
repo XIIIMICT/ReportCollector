@@ -25,7 +25,8 @@ Use Bun 1.4.x (CI and Docker use the 1.4 release line), Python 3.15 and Node 26 
   has been removed, together with its «@»-invented catalog options and legacy
   header/value typo exceptions. The real importer is strict and independent of
   the seeder. Run host seeds with `POSTGRES_HOST=127.0.0.1` — the `.env` value
-  `host.docker.internal` only resolves inside containers.
+  is for host runs; compose uses `POSTGRES_HOST_DOCKER=postgres` (service
+   name) and binds the host port `5432` to `127.0.0.1` only.
 - The «КППК» copies come from the corporate source tables (`raw.kppk_*`). That
   **original data is not in the repository** — it ships as SQL dumps the operator
   loads into the database; the seeder only reads the tables. The seeder's own
@@ -109,13 +110,13 @@ Use Bun 1.4.x (CI and Docker use the 1.4 release line), Python 3.15 and Node 26 
   application models, not `CREATE TABLE LIKE raw.*`. Existing source tables are
   read as-is; SQL dumps are used only for missing sources. Use the КППК-only seed
   to reload these copies; never run the full seed to recover them.
-5. Run: `just dev` (compose + hot-reload) or on the host `just back` / `just front`.
+5. Start the proxy **before** the app: `just proxy-stand` (80 → 308 https, 443 terminates TLS; for the dev profile set `NGINX_UPSTREAM_HOST=front-dev` / `NGINX_BACKEND_HOST=back-dev` in `.env`). Front and back have no host publication — the browser reaches them only through nginx, `AUTH_APP_ORIGIN` must be the proxy origin (local default `https://127.0.0.1`), and `COLLAB_WS_PUBLIC_URL` stays empty. Then run `just dev` (compose + hot-reload) or on the host `just back` / `just front`. Full per-port decision table — `docs/ARCHITECTURE.md`, «Published-port contract».
 
-About `POSTGRES_HOST`: on the server it's the real DB address (not localhost); `just migrate` uses whatever is in `.env`. In the compose network — `host.docker.internal` or the service name.
+About `POSTGRES_HOST`: on the server it's the real DB address (not localhost); `just migrate` uses whatever is in `.env`. In the compose network containers use `POSTGRES_HOST_DOCKER` — default `postgres` (service name), an explicit address only for an external DB.
 
-**Valkey in the dev stack:** `compose.yaml` overrides `VALKEY_URL=redis://valkey:6379/0` for `back-dev` (the compose service on the same network). Don't point the dev backend at `host.docker.internal` — Docker Desktop's VM loopback times out under load (`valkey.exceptions.TimeoutError`) and breaks collab presence/locks. The prod profile keeps `VALKEY_URL` from `.env` (valkey may live on the host there).
+**Valkey in the dev stack:** `compose.yaml` overrides `VALKEY_URL=redis://valkey:6379/0` for `back-dev` (the compose service on the same network); the prod profile now does the same by default, with `VALKEY_URL_DOCKER` as the explicit override for an external server. Valkey has **no host publication** — don't point any container at `host.docker.internal` (Docker Desktop's VM loopback times out under load with `valkey.exceptions.TimeoutError` and breaks collab presence/locks). Host-side Valkey checks use the isolated CI stand's `127.0.0.1:16379/15`, never DB 0.
 
-**Postgres in the dev stack:** `compose.yaml` likewise pins `POSTGRES_HOST=postgres` for `back-dev`. The `rc-postgres` container is on both `rc-net` and `rc-net-dev`, so the service name resolves inside the dev network, like `valkey`. The `.env` value stays `localhost`/`host.docker.internal` for **host** runs (`just back`/`just front`, seeds, tests); inside a container `localhost` is the container itself — the symptom is `/health` 200 but every DB-backed request (e.g. `GET /api/me`) returns **500** with `ConnectionRefusedError: [Errno 111]`. After changing this, recreate the container (`docker compose --profile dev up -d back-dev`).
+**Postgres in the dev stack:** `compose.yaml` likewise pins `POSTGRES_HOST=postgres` for both app profiles (prod and dev). The `rc-postgres` container is on both `rc-net` and `rc-net-dev`, so the service name resolves inside the dev network, like `valkey`. The `.env` value stays `localhost`/`host.docker.internal` for **host** runs (`just back`/`just front`, seeds, tests); inside a container `localhost` is the container itself — the symptom is `/health` 200 but every DB-backed request (e.g. `GET /api/me`) returns **500** with `ConnectionRefusedError: [Errno 111]`. After changing this, recreate the container (`docker compose --profile dev up -d back-dev`).
 
 ### Framework upgrade audit (FastAPI 0.143 → 0.162, 2026-10-24)
 
@@ -205,7 +206,7 @@ Tailwind 4 is a hard dependency of HeroUI — `@heroui/styles` is built on it (`
 
 Select the authentication environment explicitly: `bun run --cwd front test:e2e --project=smoke` uses local login; every suite now runs in that one project (the former `--project=keycloak` group signed in through SSO and was never started by CI, so its hover and dictionary regressions went unchecked — the suites moved to the shared local-login helper instead). The smoke helper honors `E2E_BASE_URL`. Missing local login is a failure, never a silent skip. Probe files are excluded from discovery and Git.
 
-Both projects require a running stack and seed. `just e2e` selects smoke; its default origin is `http://127.0.0.1:5000`. The smoke project also includes clipboard and collaboration regression tests: login/logout, rejected passwords, anonymous redirects, both workspaces, persisted price/renovation edits, disabled Ctrl+A on renovation, undo/redo, sorted Excel paste, Russian-layout copy, reference validation, two-user lease denial/update propagation, asset-scoped presence and multi-tab selection. Do not run either project against an unprepared stack.
+Both projects require a running stack and seed. `just e2e` selects smoke; its default origin is the local proxy `https://127.0.0.1` (self-signed cert accepted in Playwright config), while CI overrides it with the isolated stand's `http://127.0.0.1:15000`. The smoke project also includes clipboard and collaboration regression tests: login/logout, rejected passwords, anonymous redirects, both workspaces, persisted price/renovation edits, disabled Ctrl+A on renovation, undo/redo, sorted Excel paste, Russian-layout copy, reference validation, two-user lease denial/update propagation, asset-scoped presence and multi-tab selection. Do not run either project against an unprepared stack.
 
 ### GitHub Actions
 
@@ -215,8 +216,8 @@ Both projects require a running stack and seed. `just e2e` selects smoke; its de
 
 - Backend: locked dependencies, Ruff lint/format, ty and the **entire pytest suite in a memory/valkey matrix**, with PostgreSQL 18 and Valkey 8. Each matrix job owns its disposable services. XML/JUnit and raw coverage data are uploaded separately. A required coverage job merges both runs and enforces 80% combined statement/branch coverage; neither individual transport run exercises the other implementation. Dedicated cross-connection tests additionally exercise server TTL, pub/sub and lease ownership. Missing Valkey is a CI failure, not a fallback to MemoryStore.
 - Frontend: **Bun 1.4.4 is pinned exactly** (the floating `1.4` resolved to 1.4.5 in CI while the green local suite ran on 1.4.4 — coverage output and Playwright must not drift with a patch release), generated Next route types, TypeScript, oxlint, stylelint, oxfmt and Bun tests with LCOV. Next type generation is required before typecheck in a fresh checkout.
-- Configuration: actionlint with ShellCheck plus semantic Compose validation (including custom `!override` tags).
-- Production: build each image once, load it, migrate PostgreSQL from the host with uv, insert the small seed using `--data-only` (no schema creation), start the same images with two backend workers and run Chromium regressions. The image contains no local Excel workbook. `infra/compose.ci.yaml` never loads the developer's `.env` or log directories; localhost ports are 15000/18000 for front/back and 15432/16379 for PostgreSQL/Valkey. Browsers connect directly to the backend WS port.
+- Configuration: actionlint with ShellCheck plus semantic Compose validation (including custom `!override` tags). A separate step runs `infra/test_check_host_binds.py` and `infra/check_host_binds.py`: the latter parses **rendered** `docker compose config --format json` for both stacks and fails on any host-wide publication except the two justified nginx ports (80/443), so a future `0.0.0.0` mapping cannot pass CI. See `docs/ARCHITECTURE.md`, «Published-port contract».
+- Production: build each image once, load it, migrate PostgreSQL from the host with uv, insert the small seed using `--data-only` (no schema creation), start the same images with two backend workers and run Chromium regressions. The image contains no local Excel workbook. `infra/compose.ci.yaml` never loads the developer's `.env` or log directories; loopback ports are 15000/18000 for front/back and 15432/16379 for PostgreSQL/Valkey. Only that isolated CI stand lets browsers connect directly to the backend WS port (`18000`); the non-CI stack publishes neither app port.
 - All jobs have timeouts; reports and container logs are retained for seven days. The stack is removed even on failure.
 - Release tags `vMAJOR.MINOR.PATCH` invoke the same CI on the tagged commit, then publish the tested image archive to GHCR (version and full commit SHA tags). Images are not rebuilt after tests. No automatic server deployment or mutable `latest` tag is performed.
 

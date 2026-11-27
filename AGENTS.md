@@ -17,10 +17,10 @@ Domain contracts — `docs/DOMAINS.md`; collaboration protocol — `docs/COLLAB.
   Tailwind 4, Zod 4), Bun 1.4.x. Frontend rules — `front/AGENTS.md`.
 - `back/` — FastAPI + SQLModel + Alembic (Python 3.15, **uv**), asyncpg, Valkey.
   Backend and cross-stack data rules — `back/AGENTS.md`.
-- Ports: `FRONT_PORT=5000` / `BACKEND_PORT=8000` from the root `.env` (mandatory).
+- Ports: `FRONT_PORT=5000` / `BACKEND_PORT=8000` from the root `.env` (mandatory) are **container-side only** — the app publishes no host ports. Only nginx is public (`80` → `443` TLS); DB/monitoring/Keycloak admin ports bind `127.0.0.1`; `infra/check_host_binds.py` guards the rendered config in CI. Full per-port decision table — `docs/ARCHITECTURE.md`, «Published-port contract».
 - Compose: `compose.yaml` with `prod`/`dev` profiles; infrastructure is started
   explicitly — `just db-stand`, `just auth-stand`, `just monitoring-stand`,
-  `just proxy-stand`. In prod the reverse proxy lives in the central DWH stack.
+  `just proxy-stand`. **Start `just proxy-stand` before the app**: without it the browser has no entry point (for dev set `NGINX_UPSTREAM_HOST=front-dev` / `NGINX_BACKEND_HOST=back-dev`). In prod the reverse proxy lives in the central DWH stack; TLS and `/api/ws/` are already configured there.
 
 ## Commands (from the repo root)
 
@@ -28,7 +28,7 @@ Domain contracts — `docs/DOMAINS.md`; collaboration protocol — `docs/COLLAB.
 |---|---|
 | Back tests | `uv run --directory back pytest -q` |
 | Front unit tests | `bun run --cwd front test` |
-| e2e smoke (running stack required) | `bun run --cwd front test:e2e --project=smoke` (`E2E_BASE_URL`, `KEYCLOAK_ENABLED=false`); `--project=ui-keycloak` needs the separately prepared stack |
+| e2e smoke (running stack required) | `bun run --cwd front test:e2e --project=smoke` (`E2E_BASE_URL`, `KEYCLOAK_ENABLED=false`); local default origin is the proxy `https://127.0.0.1`, CI uses the isolated stand `http://127.0.0.1:15000`; `--project=ui-keycloak` needs the separately prepared stack |
 | Back lint/format/type | `uv run --directory back ruff check --fix` · `ruff format` · `ty check --fix` |
 | Front lint/format/type | `bun run --cwd front lint` · `format` · `typecheck` |
 | Everything at once | `just lint` · `just typecheck` · `just test` · `just e2e` |
