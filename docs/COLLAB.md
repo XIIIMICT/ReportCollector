@@ -90,7 +90,13 @@ array (tombstone on leave, last change per user wins). A bare `ping` publishes
 nothing. At most once per 15 s, when a ping arrives, an authoritative full
 `members` snapshot is published instead; it prunes silent TTL expirations and
 repairs dropped frames. The reconnect `hello` is unchanged and remains the
-per-socket authoritative resync.
+per-socket authoritative resync. The 1 s flush is a real `asyncio` task, so
+discarding a manager requires `await manager.shutdown()` first: cancelling only
+the relay/writer tasks leaves a timer holding the OLD store, which then fires
+against a closed Valkey client in the next test/session (a `ResourceWarning`
+from the connection deallocator, escalated to an error by pytest). The shared
+test fixture calls `shutdown()` before `store.close()` and before clearing the
+manager cache.
 
 Both frame shapes carry a per-room `seq`, assigned atomically with the
 publication in Valkey Lua (`max(last + 1, wall-clock ms)`, 300 s key TTL) or
