@@ -21,9 +21,51 @@ branch; no numbers are estimated.
 
 Client bundle baseline (`.next/static/chunks/*.js`, uncompressed / gzip):
 **3,722.9 KB / 1,198.2 KB across 37 chunks**; largest 1,497.8 KB, 653.8 KB,
-202.4 KB, 163.7 KB, 132.0 KB. The analyzer setup is `bun run analyze`
-(`@next/bundle-analyzer`); no analyzer report was generated for the baseline
-build because the default build output already gives comparable totals.
+202.4 KB, 163.7 KB, 132.0 KB. That is the 2026-11-26 HISTORICAL figure; the
+Phase-0 re-measurement and the route breakdown are below.
+
+### Bundle analyzer (Turbopack, 2026-11-27)
+
+`bun run analyze` uses the Turbopack analyzer shipped with the installed Next
+16.4.6: `next analyze --output --snapshot reportcollector` writes a named
+snapshot and UI files to `.next/diagnostics/analyze`, then
+`next analyze export --snapshot reportcollector` streams the graph as JSON Lines
+to `.next/diagnostics/analyze/graph.jsonl` (schema v1: 1 meta / 3123 module /
+17 route / 2144 output / 10430 part / 109 group records). Run `next analyze`
+without `--output` to browse the saved snapshot interactively. The output lives
+under `.next/`, which `front/.gitignore` excludes with its deny-all rule — no
+analyzer artifact is committed.
+
+The former setup (`ANALYZE=true next build` plus `@next/bundle-analyzer` in
+`next.config.ts`) was removed: the installed plugin bails on
+`process.env.TURBOPACK` with *"Next Bundle Analyzer is not compatible with
+Turbopack builds, no report will be generated"*, so it never registered a report
+hook for the real (Turbopack) build, exited 0 and produced no artifact. The
+dependency and its webpack-only transitive packages were removed with it. The
+CLI was re-verified from `node_modules/next/dist/bin/next` and the shipped
+`next.md` docs before the change.
+
+Compact before/after of the recorded bundle numbers (source:
+`docs/FRONTEND-AUDIT-BASELINE.md` §3.2–3.3; gzip via .NET `GZipStream` at
+`Optimal`, so a different compressor shifts the gzip column slightly). The
+analyzer swap itself does not change the bundle — these are the Phase-0
+measurements kept here as the reference, not a claim of optimization:
+
+| Route | JS files | JS raw (KiB) | JS gzip (KiB) | CSS raw (KiB) | CSS gzip (KiB) |
+|---|---:|---:|---:|---:|---:|
+| `/` | 11 | 631.8 | 194.2 | 532.3 | 54.8 |
+| `/_not-found` | 11 | 631.8 | 194.2 | 532.3 | 54.8 |
+| `/[project]` (workspace) | 13 | **776.9** | **241.5** | 532.3 | 54.8 |
+| `/blocked` | 12 | 636.0 | 195.5 | 532.3 | 54.8 |
+| 12 `/api/*` routes | 0 | 0 | 0 | 0 | 0 |
+
+Aggregate emitted client JS: **before** (2026-11-26) 3,722.9 KB / 1,198.2 KB
+gzip → **after** (Phase 0, 2026-11-27) 3,723.7 KiB / 1,186.5 KiB gzip, 37 chunks
+in both. Raw matches within noise; the ~11.7 KiB gzip gap is a compressor
+difference, not a regression. The two largest chunks (1,497.8 / 655.3 KiB raw)
+are async workspace/grid chunks, not initial-route payload. A third CSS chunk
+(`12rjs38kcanz9.css`, 363,722 B raw / 53,599 B gzip) is the RevoGrid Pro trial
+stylesheet loaded with grid sections, outside the base route CSS list.
 
 Runtime scenarios from the audit (94k-row plan, paste/copy, collaboration) were
 **not measured**: they need the prepared full stack (Postgres + Valkey + seed,
