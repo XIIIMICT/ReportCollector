@@ -167,8 +167,18 @@ test("keyboard opening does not use a stale pointer position", async ({ page }) 
     await expect(btn).toBeVisible({ timeout: 15000 });
     await moveAway(page);
     await btn.focus();
+    // Focus is visible before the menu opens, and Escape puts it back on the
+    // trigger — a portal-mounted menu must never keep focus after removal.
+    await expect(btn).toHaveAttribute("data-focus-visible", "true");
     await page.keyboard.press("Enter");
     const menu = page.locator(".view-strip-popover");
+    await expect(menu).toBeVisible({ timeout: 5000 });
+    await expect(btn).toHaveAttribute("aria-expanded", "true");
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0, { timeout: 3000 });
+    await expect(btn).toBeFocused();
+    // Re-open for the stale-pointer regression check (the original assertion).
+    await page.keyboard.press("Enter");
     await expect(menu).toBeVisible({ timeout: 5000 });
     // A stale pointer must not close the keyboard-opened menu later either.
     await expectVisibleForGrace(page, menu, HOVER_GRACE_MS * 2);
