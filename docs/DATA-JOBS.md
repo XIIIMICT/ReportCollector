@@ -239,6 +239,52 @@ are traced; untraced, building the index takes **1.1 s** and 300k membership
 tests **3.8 s**. RSS is reported, not asserted — it includes page-cache-backed
 mmap pages. No production figures or multi-worker contention are claimed.
 
+#### Point-in-time preflight token (RC-7)
+
+**Chosen strategy: optimistic revision validation, not a long `REPEATABLE READ`
+snapshot.** Keyset paging alone does not define a point in time: a write can
+commit between the first token read and a later page (a low-`id` insert is
+invisible behind the cursor) or between pages (a code edit/delete or a plan
+transfer changes what a page means). A single `REPEATABLE READ` transaction
+would fix that but would have to stay open across the two CPU-bound `to_thread`
+workbook passes, defeating the bounded-connection contract. So the endpoint
+reads the token at the start of an attempt, again **after the final keyset
+page**, and once more **before returning a cache hit or caching/returning a
+fresh report**. Only a matching token seals the oracle, writes the report to
+Valkey and returns it; any mismatch discards the oracle and restarts with a
+fresh token and scope. The final check also covers a commit during the parse.
+The two columns (`r_plans.id`, `r_plans.revision`) come from ONE READ COMMITTED
+`SELECT`, so the token cannot straddle a commit. `revision` only ever increases
+(migration 0043 triggers), which rules out an ABA on the counter; the plan id
+covers a working-version swap.
+
+**Retry and exhaustion.** At most `_PREFLIGHT_MAX_ATTEMPTS = 3` attempts;
+there is no sleep and no unbounded loop. A cache HIT re-checks the token before
+it is returned and is discarded (not returned as current) when the token moved.
+On a MISS the oracle is created only after the lookup — a cheap hit never
+rebuilds a 300k-code index — and is closed in `finally` on success, token
+conflict, DB error, cancellation and exhaustion, releasing the mmap and every
+temporary run. Exhaustion returns **HTTP 409** with the fixed Russian detail
+«План изменился во время проверки файла. Повторите загрузку.»: no report, no
+cache write, no leaked temp file. The DB connection is released with
+`session.close()` before both `scan_file_scope` and
+`inspect_plan_file_streaming` run in `to_thread`; the token re-reads briefly
+re-acquire one. Cache keys, scope parts, `INSPECT_CACHE_VERSION`, bounded
+oracle/pages and the trigger source of truth are unchanged.
+
+Regression coverage: `back/tests/test_preflight_plan_snapshot.py` (10 tests,
+real migrated schema, separate committed writers, `asyncio` page hooks, no
+sleeps, `_EXISTING_CODE_PAGE_SIZE` monkeypatched small). It covers a low-id
+insert behind the cursor with an explicit UUID, a code change and a delete
+between pages, an unchanged-code A→B transfer bumping both revisions, a
+working-plan swap, a no-mutation hit (two token reads, no oracle/parse) and a
+no-mutation miss (one attempt, three token reads, one exact cache scope),
+bounded 409 exhaustion, mixed-oracle cache exclusion plus a later-revision
+non-hit, and oracle/temp cleanup on retry, DB error, cancellation and
+exhaustion. The trigger itself is still verified by
+`test_plan_revision_trigger.py` against the real 0043 schema — none of these
+tests mocks it away.
+
 The rest of the scope is file-derived. The asset part names the file's assets
 («Наименование ДО» repair codes → asset ids, or «Предприятие» names → asset ids
 when the code column is absent). The dictionary part carries
