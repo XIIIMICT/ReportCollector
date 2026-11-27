@@ -171,7 +171,10 @@ jobs:
         run: |
           bunx --no-install playwright test --project=smoke --list | tee smoke-discovery.txt
           for spec in auth clipboard collab fix-month health hover-dropdown raw-materials-ui renovation-hover smoke workspace-panels; do
-            grep -Fq "$spec.spec.ts" smoke-discovery.txt || {
+            # Anchor on the discovery prefix and the trailing colon: a bare
+            # filename match would let an unrelated "*-$spec.spec.ts" satisfy
+            # the guard while the required spec disappeared.
+            grep -Fq "› $spec.spec.ts:" smoke-discovery.txt || {
               echo "::error::required smoke spec $spec.spec.ts is absent from the Playwright discovery list"
               exit 1
             }

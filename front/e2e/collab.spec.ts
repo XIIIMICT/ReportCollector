@@ -1,6 +1,11 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Request } from "@playwright/test";
 
 import { loginAsTestUser, type TestUserId } from "./helpers/test-users";
+import {
+    EDIT_REJECT_SETTLE_MS,
+    expectNoRequestsForGrace,
+    expectStableForGrace,
+} from "./helpers/timing";
 
 const APP_ORIGIN = process.env.E2E_BASE_URL ?? "http://127.0.0.1:5000";
 
@@ -128,9 +133,26 @@ test.describe("collab: совместное редактирование", () =>
         await expect(cellB).toHaveClass(/report-cell--remote-locked/, { timeout: 15000 });
 
         // Попытка B отредактировать занятую ячейку блокируется: редактор не открывается.
+        // A rejected edit must leave BOTH the DOM and the API untouched. The
+        // counter catches a late save that a fixed sleep could not see.
+        const editRequests: Request[] = [];
+        pageB.on("request", (request: Request) => {
+            if (
+                request.method() === "PATCH" &&
+                request.url().includes("/api/raw-materials/movement")
+            ) {
+                editRequests.push(request);
+            }
+        });
         await cellB.dblclick();
-        await pageB.waitForTimeout(500);
-        await expect(pageB.locator("revogr-edit input, revogr-edit textarea")).toHaveCount(0);
+        await expectStableForGrace(
+            pageB,
+            () => {
+                expect(pageB.locator("revogr-edit input, revogr-edit textarea")).toHaveCount(0);
+            },
+            EDIT_REJECT_SETTLE_MS,
+        );
+        await expectNoRequestsForGrace(pageB, editRequests, () => true, EDIT_REJECT_SETTLE_MS);
         expect(await cellValue(pageB, "demandPlanTons", 0)).toBe(original);
 
         // A завершает редактирование — значение применяется у обоих.

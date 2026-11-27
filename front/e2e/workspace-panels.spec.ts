@@ -2,6 +2,9 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { loginAsTestUser } from "./helpers/test-users";
 
+/** Header title/funnel hover transition; geometry is read only after it settles. */
+const HEADER_TRANSITION_SETTLE_MS = 350;
+
 test.beforeEach(async ({ page }, info) => {
     await page.setViewportSize({ width: 1600, height: 1000 });
     if (info.project.name === "ui-keycloak") {
@@ -506,7 +509,9 @@ test("sorted header text does not move when its active funnel is hovered", async
     }
     await expect(cell).toHaveClass(/asc|desc/);
     await page.mouse.move(10, 10);
-    await page.waitForTimeout(350);
+    // Genuine transition sampling: the hover reveal has a CSS transition, and
+    // the "before" geometry must be measured after it finishes.
+    await page.waitForTimeout(HEADER_TRANSITION_SETTLE_MS);
     const before = await title.evaluate((element) => {
         const range = document.createRange();
         range.selectNodeContents(element);
@@ -515,7 +520,9 @@ test("sorted header text does not move when its active funnel is hovered", async
     });
 
     await title.hover({ force: true });
-    await page.waitForTimeout(350);
+    // Same transition on the "after" side; comparing mid-animation rectangles
+    // would report a shift that is only the reveal still in progress.
+    await page.waitForTimeout(HEADER_TRANSITION_SETTLE_MS);
     const after = await title.evaluate((element) => {
         const range = document.createRange();
         range.selectNodeContents(element);

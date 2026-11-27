@@ -435,20 +435,35 @@ substitute for either.** The `ui-keycloak` project is not started by CI.
   case switches project once via keyboard, asserts `POST /api/raw-materials/assets`
   succeeds, re-opens the section so the created record is a real row, selects
   it by the stable `data-rgrow` in the row-header viewport, and deletes it with
-  `try/finally` API cleanup. Verified 3/3 consecutive runs with zero orphan
-  assets; no assertion weakened.
+  `try/finally` API cleanup. RC-4 additionally opens the draft through the
+  grid's stable `new:assets` placeholder id (verified stable across a named
+  settle window) and waits for editor focus/value, so a refresh cannot rebind
+  Enter to a real row and turn the create into a PATCH. Verified 6/6 consecutive
+  runs with zero orphan assets; no assertion weakened.
 - [x] **Invalid-reference paste warning restored.** `clipboard.spec.ts:164`
   failed because earlier flaky CRUD runs had polluted the disposable CI stand:
   orphan «Тест Актив» assets and a deleted `СНХЗ` dictionary entry made the
   grid report `значение «СНХЗ» отсутствует в справочнике` instead. The stand was
   re-migrated/re-seeded; the test passed 2/2 without code changes. Root cause
   was test data, not production behavior.
-- [ ] **Reduce arbitrary sleeps and weak selectors.** 22 `waitForTimeout` calls
-  and ~16 CSS-targeted semantic controls remain; keep only flicker-sampling
-  waits, prefer `getByRole(..., { exact: true })` and web-first assertions.
-- [ ] **Fix docs/config drift.** `docs/FRONTEND-REFACTOR.md` test section is
-  stale (ports/counts); root `AGENTS.md` names `--project=keycloak` while the
-  config declares `ui-keycloak`.
+- [x] **Reduce arbitrary sleeps and weak selectors** (2026-11-27, RC-4). Sleeps
+  used as "nothing happened" evidence are gone from `clipboard.spec.ts` (no
+  mutating request after an invalid paste), `collab.spec.ts` (no editor/no PATCH
+  after a rejected lease edit), `hover-dropdown.spec.ts` and
+  `renovation-hover.spec.ts` (named grace helper tied to the 250 ms
+  HoverDropdown window, with re-checks throughout). Kept only genuine flicker /
+  CSS-transition sampling waits, each commented with its reason. Semantic
+  controls (project switcher, menu items, «Вид таблицы», profile buttons,
+  theme toggle) now use `getByRole` with exact names; RevoGrid-internal CSS
+  selectors remain where there is no stable hook. Shared helpers live in
+  `front/e2e/helpers/timing.ts`.
+- [x] **Fix docs/config drift** (2026-11-27, RC-4). Root `AGENTS.md` now names
+  `--project=ui-keycloak`; `front/AGENTS.md` and `front/playwright.config.ts`
+  state that the single config is shared by local and CI (no separate local
+  config), with matching `testIgnore`, project names and smoke selection. CI's
+  discovery guard now anchors on the `› <spec>.spec.ts:` prefix. The stale
+  ports/counts in `docs/FRONTEND-REFACTOR.md` were replaced by the actual smoke
+  selection; no retroactive performance evidence was added.
 
 ## Process (hard rules)
 
