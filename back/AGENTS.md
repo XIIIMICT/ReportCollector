@@ -67,6 +67,11 @@ contracts. Keep one home per fact.
    into one EVALSHA (NOSCRIPT → one SCRIPT LOAD); partial grants and owner
    checks stay unchanged. The fencing token is PostgreSQL `collab_action_id_seq`
    → `lastActionId`, never a Valkey lease value — see `docs/LEASE-BATCHING.md`.
+   Presence joins/selection/leaves are coalesced into one sequenced delta per
+   1 s window; a heartbeat publishes no map and a full repair snapshot is due at
+   most once per 15 s. Deltas pass the same asset/selection filter as snapshots;
+   the reconnect `hello` full snapshot is unchanged. Contract and measurements —
+   `docs/COLLAB.md`, `docs/PRESENCE-FANOUT.md`.
 7. **«Пользователи» & self-provisioning:** an admin's addition appears in all
    projects (`is_active=false` elsewhere). A user self-registers into ONE
    project by opening its URL; the root URL never provisions anyone (`GET

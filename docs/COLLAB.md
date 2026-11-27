@@ -50,7 +50,7 @@ Server → client:
 | type | meaning |
 |---|---|
 | `hello` | room, self, `members` (present members with selection/assets/role) |
-| `presence:update` | member list changed |
+| `presence:update` | sequenced member change(s) (`changes`: `userId` → member or `null` on leave) or a periodic full `members` repair snapshot; `seq` is per room |
 | `lease:granted` / `lease:denied` | acquire result (denied — with the current owner) |
 | `cell:locked` / `cell:unlocked` | cell lease taken/released (the client maintains `remoteLocks`) |
 | `cell:changed` | a cell changed (after a successful REST commit or undo/redo): clients apply it live |
@@ -77,9 +77,34 @@ test is `test_undo_restores_source_and_recalculates_formula`.
 | Room presence | 25s | heartbeat (`ping`) every 15s |
 | Idle detection | 2 min without mouse/keyboard/focus **or** `document.hidden` | leases released immediately (`lease:release`), heartbeat/renew stop; on activity — heartbeat resumes, selection re-sent, server re-joins via `ping` |
 
-Valkey presence stores a server-clock expiration per member, updated atomically by Lua. The room hash TTL is only garbage collection; another user's heartbeat cannot retain an idle member. Each ping broadcasts a current member snapshot, pruning expired members and reconciling missed pub/sub updates. Disconnect removes presence only if the entry still belongs to that `clientId`, so a delayed old connection cannot erase a newer tab's presence. During the upgrade from plain hash payloads, old ephemeral presence entries are discarded and rejoined on the next ping. Restart all application workers together for this format transition (no mixed-version rolling deployment).
+Valkey presence stores a server-clock expiration per member, updated atomically by Lua. The room hash TTL is only garbage collection; another user's heartbeat cannot retain an idle member. Disconnect removes presence only if the entry still belongs to that `clientId`, so a delayed old connection cannot erase a newer tab's presence. During the upgrade from plain hash payloads, old ephemeral presence entries are discarded and rejoined on the next ping. Restart all application workers together for this format transition (no mixed-version rolling deployment).
 
 Result: walked away (tab open) → after ~2 min leases are released, "online" fades ~25s later. Returned — online again. A "forever" lease is impossible (previously the client renewed endlessly).
+
+### Presence fan-out (P1-3)
+
+Joins, selection updates and leaves no longer publish a full member map per
+connection. `RoomManager` stages one `userId -> member | None` change per room;
+after a 1 s window it publishes one `presence:update` frame with a `changes`
+array (tombstone on leave, last change per user wins). A bare `ping` publishes
+nothing. At most once per 15 s, when a ping arrives, an authoritative full
+`members` snapshot is published instead; it prunes silent TTL expirations and
+repairs dropped frames. The reconnect `hello` is unchanged and remains the
+per-socket authoritative resync.
+
+Both frame shapes carry a per-room `seq`, assigned atomically with the
+publication in Valkey Lua (`max(last + 1, wall-clock ms)`, 300 s key TTL) or
+under the MemoryStore lock. The client keeps a merged member map, ignores
+frames with a non-newer `seq`, and resets the sequence on each `hello`; this
+makes duplicate and out-of-order deltas harmless. `RoomAccess.filter_messages`
+applies the same asset/selection filter to delta members as to snapshots, so a
+delta cannot leak a foreign selection. A change staged when the last local
+socket leaves is still published for the other workers' clients.
+
+Frames per join burst are O(1) instead of O(N) and heartbeats are O(0) instead
+of one full map each; one burst still delivers an N-member frame to N sockets,
+so aggregate bytes are not sub-quadratic. Measured before/after fan-out, exact
+commands and caveats — `docs/PRESENCE-FANOUT.md`.
 
 Both stores (`ValkeyStore`, `MemoryStore`) implement one interface; the choice depends on `VALKEY_URL` (empty = memory). Lua scripts guarantee owner checks for renew/release.
 
@@ -139,7 +164,7 @@ is recorded by the collaboration logs/metrics for investigation.
 
 ## Tests
 
-`back/tests/test_collab.py` runs against both MemoryStore and real Valkey in CI: protocol, leases/presence, undo scope per session/form and idle-return via ping. `test_store_contract.py` checks concurrent acquisition, atomic numeric revisions, bulk stack order and oldest-first redo on both stores; `test_valkey.py` verifies independent connections and server TTL/pubsub. `front/e2e/collab.spec.ts` runs two-user/multi-tab regressions with local login on the isolated production-image stack. Frontend unit tests cover ticket/session forwarding, lease denial/release, selection preemption and disconnect during ticket fetch (no late socket creation); malformed messages are ignored.
+`back/tests/test_collab.py` runs against both MemoryStore and real Valkey in CI: protocol, leases/presence, undo scope per session/form and idle-return via ping. `test_store_contract.py` checks concurrent acquisition, atomic numeric revisions, bulk stack order and oldest-first redo on both stores; `test_valkey.py` verifies independent connections and server TTL/pubsub. `test_presence_fanout.py` covers coalescing, join+leave tombstones, repair snapshots, per-store sequencing and the unchanged reconnect `hello`; `test_access_ws.py` checks delta-frame asset filtering. `front/e2e/collab.spec.ts` runs two-user/multi-tab regressions with local login on the isolated production-image stack. Frontend unit tests cover ticket/session forwarding, lease denial/release, selection preemption (including delta frames), stale-frame rejection and disconnect during ticket fetch (no late socket creation); malformed messages are ignored.
 
 ## Transaction and delivery guarantees
 

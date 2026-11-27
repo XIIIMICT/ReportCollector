@@ -206,8 +206,9 @@ can exceed 100%); samples were taken every 2 s during the run, not continuously.
 
 1. **SCALED-DOWN baseline.** The largest clean run was 200 clients in one room
    for presence and 50 for churn. The assumed 300-client / 10–50-room profile
-   is untested. Do not extrapolate linearly: presence fan-out grows ~N² in a
-   single room and login is Argon2-bound.
+   is untested. Do not extrapolate linearly: in the code measured here
+   presence fan-out grows ~N² in a single room and login is Argon2-bound.
+   The presence path changed afterwards — see the addendum below.
 2. All scripts use one raw-materials room and `materialMovement` cells. A real
    profile spreads clients over 10–50 rooms; per-room fan-out would be lower,
    aggregate Valkey/DB traffic higher. Both remain ASSUMPTIONS.
@@ -221,3 +222,16 @@ can exceed 100%); samples were taken every 2 s during the run, not continuously.
 6. The Grafana `load-baseline` dashboard (`infra/grafana/provisioning/dashboards-json/load-baseline.json`)
    uses only existing metric names — no new Prometheus metric was introduced by
    this change. k6 trends live in the k6 summary/artifact, not in Prometheus.
+
+## Addendum — presence fan-out after P1-3 (2026-11-27)
+
+The presence figures above describe the **baseline code** (`eeb0679`): every
+ping published a full member map to every client, hence ~N² growth. P1-3
+replaced those broadcasts with coalesced `changes` frames plus a ≤15 s
+authoritative repair snapshot. The AFTER run reused the same captured BEFORE
+outputs and repeated `load/presence-scale.js` at N=50/100/200 on the rebuilt
+disposable CI stand: aggregate `presence_updates_received` fell from
+487/1801/6400 to 11.6/28.5/62.3 per second and pong p99 from 32/547/428 ms to
+4/5/10 ms. Exact commands, outputs, caveats and the UNMEASURED list are in
+`docs/PRESENCE-FANOUT.md`. No workload assertion was weakened, the BEFORE case
+was not re-run, and N=300/500 remains UNMEASURED.

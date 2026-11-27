@@ -79,6 +79,20 @@ different milestones. Do not reopen the explicit product deferrals below.
   frames are unchanged. Measured k=1/5/20 before/after on the disposable CI
   stand (lease p95 37.29→19.59 / 21.04→19.29 / 50→22.84 ms): `docs/LEASE-BATCHING.md`.
   Full pytest green in memory and valkey modes, combined coverage 81%.
+- [x] **P1-3 — presence fan-out O(N²) → roughly linear frame growth
+  (2026-11-27).** Joins/selection/leaves stage one coalesced `changes` frame per
+  1 s window instead of publishing a full member map per event; a heartbeat is
+  silent and an authoritative full snapshot is published at most once per 15 s
+  on a ping. A per-room `seq` (atomic Valkey Lua / MemoryStore lock) plus a
+  merged client map makes deltas idempotent and out-of-order safe; the reconnect
+  `hello` full snapshot is unchanged. Delta members pass the same asset/selection
+  filter as snapshots, and a stale socket cannot erase a newer tab's presence.
+  Measured on the disposable CI stand at N=50/100/200: presence updates/s
+  487→11.6, 1801→28.5, 6400→62.3 (pong p99 32/547/428 ms → 4/5/10 ms);
+  exact commands, caveats and UNMEASURED list in `docs/PRESENCE-FANOUT.md`.
+  Full pytest green in memory (825 passed, 81%) and valkey (834 passed, 81%)
+  modes; 735 frontend unit tests and 7 Playwright presence/smoke checks green.
+  N=300/500, multi-replica, proxy/TLS and production telemetry remain open.
 - [ ] Finish plan preflight as one bounded worker operation: persist the bounded
   validation result and validate missing catalog definitions explicitly. The
   existing-code lookup is now bounded too (RC-2), the request DB session is
@@ -203,7 +217,8 @@ different milestones. Do not reopen the explicit product deferrals below.
   the native-k6 suite in `load/` measured join/lease/edit/presence/undo/reconnect
   paths on the disposable CI stand — `docs/LOAD-BASELINE.md`. SCALED-DOWN runs
   reached 200 clients in one room (6106–6218 presence updates/s) and 50-client
-  churn (hello p99 2.67 s at N=50/30 s). The 300-client target is NOT certified:
+  churn (hello p99 2.67 s at N=50/30 s); the P1-3 after-change presence run is
+  in `docs/PRESENCE-FANOUT.md`. The 300-client target is NOT certified:
   an N=500 attempt failed with 12 local-login HTTP 500 errors. Multi-replica,
   proxy and admission-limit work remains open.
 - [ ] Add operational runbooks for stuck jobs, DB pool/locks, Valkey failure,

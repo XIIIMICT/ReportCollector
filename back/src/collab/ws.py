@@ -79,6 +79,11 @@ _QUEUE_SIZE = 256  # outbound message queue size per connection
 _MAX_MESSAGE_BYTES = 64 * 1024
 _MESSAGE_RATE_WINDOW = 10.0
 _MAX_MESSAGES_PER_WINDOW = 300
+# Presence broadcasts carry only changes, coalesced for this window. A full
+# member snapshot is still published periodically so a dropped frame converges
+# without waiting for a reconnect; 15 s equals the shipped client heartbeat.
+_PRESENCE_FLUSH_SECONDS = 1.0
+_PRESENCE_FULL_INTERVAL_SECONDS = 15.0
 
 # Resolves (user, roles, assets, block) for the connection's project.
 AccessResolver = Callable[
@@ -119,6 +124,14 @@ class RoomManager:
         self._access: dict[WebSocket, RoomAccess] = {}
         self._ready: dict[str, asyncio.Event] = {}
         self._close_reasons: dict[WebSocket, str] = {}
+        # Coalesced presence changes: one `userId -> member | None` map per
+        # room. None means "left" (tombstone). A single flush publishes one
+        # frame for the whole window, so a join storm is O(N) queue puts
+        # instead of O(N²) full snapshots.
+        self._pending_presence: dict[str, dict[str, dict | None]] = {}
+        self._flush_tasks: dict[str, asyncio.Task] = {}
+        self._force_full: set[str] = set()
+        self._last_full: dict[str, float] = {}
 
     async def join(self, room: str, websocket: WebSocket, member: dict, access: RoomAccess | None = None) -> None:
         members = self._members.setdefault(room, {})
@@ -126,6 +139,7 @@ class RoomManager:
         if new_room:
             self._ready[room] = asyncio.Event()
             self._relay_tasks[room] = asyncio.create_task(self._relay(room))
+            self._last_full[room] = time.monotonic()
         queue: asyncio.Queue = asyncio.Queue(maxsize=_QUEUE_SIZE)
         if access is not None:
             self._access[websocket] = access
@@ -175,6 +189,10 @@ class RoomManager:
             self._queues.pop(room, None)
             self._writers.pop(room, None)
             self._ready.pop(room, None)
+            self._last_full.pop(room, None)
+            self._force_full.discard(room)
+            # Staged changes stay queued: another worker's clients still need
+            # the leave delta even after this worker's last socket is gone.
 
     @staticmethod
     def _room_section(room: str) -> str:
@@ -187,6 +205,65 @@ class RoomManager:
         """
         parts = room.split(":")
         return parts[1] if len(parts) > 1 else "unknown"
+
+    def queue_presence_change(self, room: str, user_id: str, member: dict | None) -> None:
+        """Stage a join/update (member) or leave (None) for the next flush."""
+        self._pending_presence.setdefault(room, {})[user_id] = member
+        self._schedule_presence_flush(room)
+
+    def note_presence_ping(self, room: str) -> None:
+        """Request the periodic authoritative repair snapshot when due."""
+        if time.monotonic() - self._last_full.get(room, 0.0) >= _PRESENCE_FULL_INTERVAL_SECONDS:
+            self._force_full.add(room)
+            self._schedule_presence_flush(room)
+
+    def _schedule_presence_flush(self, room: str) -> None:
+        task = self._flush_tasks.get(room)
+        if task is not None and not task.done():
+            return
+        self._flush_tasks[room] = asyncio.create_task(self._flush_presence_after_delay(room))
+
+    async def _flush_presence_after_delay(self, room: str) -> None:
+        try:
+            await asyncio.sleep(_PRESENCE_FLUSH_SECONDS)
+            await self.flush_presence(room)
+        except asyncio.CancelledError:
+            return
+        except Exception as error:  # noqa: BLE001 - classify, never log exception text
+            log_failure(
+                logger,
+                "collab.ws_presence_flush_failed",
+                "Presence flush failed; the next ping repairs the room",
+                error,
+                error_code="ws_presence_flush_failed",
+                phase="presence",
+            )
+
+    async def flush_presence(self, room: str) -> int:
+        """
+        Publish the staged changes (or a due full snapshot), atomically sequenced.
+
+        Returns the number of published frames. Tests call this directly so
+        coalescing is verified without waiting on a timer.
+        """
+        task = self._flush_tasks.pop(room, None)
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()
+        pending = self._pending_presence.pop(room, {})
+        full = room in self._force_full
+        self._force_full.discard(room)
+        if not pending and not full:
+            return 0
+        if full:
+            # room_members() prunes expired entries, so the repair snapshot is
+            # authoritative for both joins and silent TTL disappearances.
+            message = {"type": "presence:update", "members": await self._store.room_members(room)}
+            self._last_full[room] = time.monotonic()
+        else:
+            changes = [{"userId": user_id, "member": member} for user_id, member in sorted(pending.items())]
+            message = {"type": "presence:update", "changes": changes}
+        await self._store.publish_presence(room, message)
+        return 1
 
     async def _relay(self, room: str) -> None:
         section = self._room_section(room)
@@ -484,7 +561,10 @@ async def _serve_room(
         hello = {"type": "hello", "room": room, "user": owner, "members": members, "clientId": client_id}
         for message in await access.filter_messages([hello]):
             await websocket.send_json(message)
-        await store.publish(room, {"type": "presence:update", "members": members})
+        # The socket's own hello is the authoritative resync. Other clients
+        # learn about the join through the next coalesced delta, not a full
+        # map broadcast per connection.
+        manager.queue_presence_change(room, str(user.id), owner)
         log_event(
             logger,
             "collab.ws_connect",
@@ -563,6 +643,7 @@ async def _serve_room(
                     project_key=project_key,
                     owner=owner,
                     owned_leases=owned_leases,
+                    manager=manager,
                     access=access,
                 )
             except WebSocketDisconnect, WebSocketDisconnected:
@@ -610,6 +691,7 @@ async def _handle_message(
     project_key: str,
     owner: dict,
     owned_leases: set[str],
+    manager: RoomManager,
     access: RoomAccess | None = None,
 ) -> None:
     message_type = message.get("type")
@@ -649,6 +731,7 @@ async def _handle_message(
                     project_key=project_key,
                     owner=owner,
                     owned_leases=owned_leases,
+                    manager=manager,
                 )
                 return
             if message_type == "presence":
@@ -673,10 +756,11 @@ async def _handle_message(
             # Presence expired while the member was idle (walked away, tab
             # hidden): they're back — online again.
             await store.room_join(room, str(owner["userId"]), owner)
-        # Reconcile missed pub/sub snapshots and prune members whose own TTL
-        # expired, even when this member's heartbeat only renewed its entry.
-        members = await store.room_members(room)
-        await store.publish(room, {"type": "presence:update", "members": members})
+            manager.queue_presence_change(room, str(owner["userId"]), owner)
+        # A bare heartbeat changes no member state, so it publishes nothing.
+        # The periodic snapshot still reconciles missed deltas and prunes
+        # members whose own TTL expired.
+        manager.note_presence_ping(room)
         await websocket.send_json({"type": "pong"})
         return
     if message_type == "presence":
@@ -688,8 +772,7 @@ async def _handle_message(
         if parsed.selection is not None:
             payload["selection"] = parsed.selection
         await store.room_join(room, str(owner["userId"]), payload)
-        members = await store.room_members(room)
-        await store.publish(room, {"type": "presence:update", "members": members})
+        manager.queue_presence_change(room, str(owner["userId"]), payload)
         return
     parsed = LeaseMessage.model_validate(message)
     cells = parsed.cells
@@ -745,11 +828,13 @@ async def _cleanup_connection(
     owner: dict,
     owned_leases: set[str],
 ) -> None:
+    # A stale connection must not erase a newer tab's presence: room_leave
+    # reports whether this clientId actually owned the entry.
+    removed = await store.room_leave(room, str(owner["userId"]), client_id=owner.get("clientId"))
+    if removed:
+        manager.queue_presence_change(room, str(owner["userId"]), None)
     # Always cancel local tasks, including when Valkey is unavailable.
     await manager.leave(room, websocket)
     for cell_key in list(owned_leases):
         await store.release_lease(lease_key(cell_key, project=project_key), owner)
         await store.publish(room, {"type": "cell:unlocked", "key": cell_key, "user": owner})
-    await store.room_leave(room, str(owner["userId"]), client_id=owner.get("clientId"))
-    members = await store.room_members(room)
-    await store.publish(room, {"type": "presence:update", "members": members})
