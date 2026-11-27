@@ -258,10 +258,11 @@ async def _seed(session: AsyncSession, rows: int) -> tuple[RenovationPlan, list[
     return plan, assets
 
 
-async def _timed(label: str, fn: Callable[[], Any], measurements: dict[str, Any]) -> None:
+async def _timed(label: str, fn: Callable[[], Any], measurements: dict[str, Any]) -> Any:  # noqa: ANN401
     started = time.perf_counter()
-    await fn()
+    result = await fn()
     measurements.setdefault(label, []).append(time.perf_counter() - started)
+    return result
 
 
 async def _scenarios(
@@ -270,8 +271,9 @@ async def _scenarios(
     assets: list[RAsset],
     measurements: dict[str, Any],
 ) -> None:
+    rows_done: dict[str, int] = measurements.setdefault("rows", {})
     for offset in (0, 100_000, 300_000):
-        await _timed(
+        result = await _timed(
             f"window@{offset}",
             lambda offset=offset: read_plan_rows(
                 session,
@@ -283,19 +285,22 @@ async def _scenarios(
             ),
             measurements,
         )
+        rows_done[f"window@{offset}"] = len(result.rows)
     filters = [RenovationColumnFilter(column="workshop_name", values=["Цех 01", "Цех 02"])]
-    await _timed(
+    filtered = await _timed(
         "window_filtered",
         lambda: read_plan_rows(session, assets, plan_id=plan.id, filters=filters, offset=0, limit=1000),
         measurements,
     )
+    rows_done["window_filtered"] = len(filtered.rows)
     for column in ("workshop_name", "work_description"):
-        await _timed(
+        facets = await _timed(
             f"facet:{column}",
             lambda column=column: read_plan_facets(session, assets, plan_id=plan.id, column=column, limit=200),
             measurements,
         )
-    await _timed(
+        rows_done[f"facet:{column}"] = len(facets.values)
+    searched = await _timed(
         "facet:work_description:search",
         lambda: read_plan_facets(
             session,
@@ -308,6 +313,7 @@ async def _scenarios(
         ),
         measurements,
     )
+    rows_done["facet:work_description:search"] = len(searched.values)
     await _timed(
         "aggregates",
         lambda: read_working_plan_aggregates(
@@ -323,6 +329,7 @@ async def _scenarios(
         async for batch in iter_plan_export_rows(session, plan_id=plan.id, asset_ids=[asset.id for asset in assets]):
             count += len(batch)
         measurements.setdefault("results", {})["export_iter_full_rows"] = count
+        rows_done["export_iter_full"] = count
         return count
 
     await _timed("export_iter_full", full_iter, measurements)
@@ -357,6 +364,7 @@ async def _scenarios(
         total_bytes = sum(len(chunk) for chunk in stream_renovation_workbook(data))
         measurements.setdefault("results", {})["export_xlsx_filtered_bytes"] = total_bytes
         measurements.setdefault("results", {})["export_xlsx_filtered_rows"] = len(rows)
+        rows_done["export_xlsx_filtered"] = len(rows)
         return total_bytes
 
     await _timed("export_xlsx_filtered", filtered_workbook, measurements)
@@ -420,13 +428,14 @@ async def run(rows: int, reps: int, import_rows: int, schema: str, database_url:
     import_payload = await _import_scenarios(import_rows, database_url)
     measured: dict[str, Any] = {}
     for key, samples in measurements.items():
-        if key == "results":
+        if key in {"results", "rows"}:
             continue
+        row_count = measurements.get("rows", {}).get(key)
+        median = statistics.median(samples) if samples else 0
         measured[key] = {
             **_summary(samples),
-            "throughput_rows_per_s": (
-                round(rows / statistics.median(samples), 1) if samples and statistics.median(samples) else None
-            ),
+            "units_processed": row_count,
+            "throughput_units_per_s": (round(row_count / median, 1) if row_count and median else None),
         }
     return {
         "scenario": "rollout-workload",
