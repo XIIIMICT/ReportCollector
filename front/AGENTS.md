@@ -81,6 +81,11 @@ live in `back/AGENTS.md`; contracts in `docs/API.md`, `docs/COLLAB.md`,
   never treat them as runtime validation. WS/collab and UI-only types stay
   handwritten. `pinned swagger-typescript-api` is dev-only with no TypeScript
   peer, so the TypeScript 7 app compiler needs no override.
+- **Grid PATCH responses are JSON scalars:** `/api/raw-materials/movement` and
+  `/api/raw-materials/prices` answer with the applied-cell count as a bare
+  number. `requestWrite` parses object bodies only by default; those two callers
+  pass `{ allowScalar: true }`. Never relax the default — the strict check is
+  what rejects an HTML/malformed body returned with HTTP 200.
 - Use `bunx`, not `npx`; `uv` on the backend, not bare `python`.
 - `git status` + branch before git operations; no commit/push without explicit
   request; UTF-8/no BOM/LF.

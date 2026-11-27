@@ -93,16 +93,28 @@ export async function updateMovementCells(
     reportMonth: string,
     updates: CellUpdate[],
 ): Promise<number> {
-    return requestWrite(`/api/raw-materials/movement?session_id=${getCollabSessionId()}`, "PATCH", {
-        reportMonth,
-        updates,
-    });
+    // Both grid PATCH endpoints answer with the number of applied cells — a
+    // JSON scalar, not an object. Keep the strict object parser elsewhere.
+    return requestWrite(
+        `/api/raw-materials/movement?session_id=${getCollabSessionId()}`,
+        "PATCH",
+        {
+            reportMonth,
+            updates,
+        },
+        { allowScalar: true },
+    );
 }
 
 export async function updatePriceCells(updates: CellUpdate[]): Promise<number> {
-    return requestWrite(`/api/raw-materials/prices?session_id=${getCollabSessionId()}`, "PATCH", {
-        updates,
-    });
+    return requestWrite(
+        `/api/raw-materials/prices?session_id=${getCollabSessionId()}`,
+        "PATCH",
+        {
+            updates,
+        },
+        { allowScalar: true },
+    );
 }
 
 export async function updateDictionaryCells(

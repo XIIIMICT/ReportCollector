@@ -504,6 +504,21 @@ function SectionContent({
     const [snapshotPending, setSnapshotPending] = useState(false);
     const [undoCount, setUndoCount] = useState(0);
     const [redoCount, setRedoCount] = useState(0);
+    // Undo state is written both optimistically (right after a commit) and from
+    // server reads. Reads are async, so an older one can resolve after a newer
+    // write and roll the counters back — leaving «Отменить действие» disabled
+    // even though the edit is already journaled. Every state change bumps this
+    // epoch; superseded reads are discarded.
+    const undoEpochRef = useRef(0);
+    const refreshUndo = useCallback(() => {
+        const epoch = ++undoEpochRef.current;
+        void refreshUndoCounters(
+            () => getUndoState(section, reportMonth),
+            setUndoCount,
+            setRedoCount,
+            () => epoch === undoEpochRef.current,
+        );
+    }, [reportMonth, section]);
 
     useEffect(() => {
         placeholderDraftRef.current = placeholderDraft;
@@ -540,12 +555,8 @@ function SectionContent({
     // on form switch the counters are re-read from the right stack.
     useEffect(() => {
         if (!collabEnabled) return;
-        void refreshUndoCounters(
-            () => getUndoState(section, reportMonth),
-            setUndoCount,
-            setRedoCount,
-        );
-    }, [collabEnabled, reportMonth, section]);
+        refreshUndo();
+    }, [collabEnabled, refreshUndo]);
 
     const canManageReferences = isAdmin && sectionPolicy(section).rowOps !== "none";
     // Users are created via the modal instead of the trailing placeholder row.
@@ -742,6 +753,9 @@ function SectionContent({
             ) {
                 await updateDictionaryCells(section, updates);
             }
+            // Invalidate any in-flight undo-state read before the optimistic
+            // update: a read issued before this commit reports the empty stack.
+            undoEpochRef.current += 1;
             setUndoCount((count) => count + 1);
             setRedoCount(0);
             refresh();
@@ -770,11 +784,7 @@ function SectionContent({
             refresh();
             // The create is journaled server-side as an undoable action:
             // re-read the undo state so Ctrl+Z is offered immediately.
-            void refreshUndoCounters(
-                () => getUndoState(section, reportMonth),
-                setUndoCount,
-                setRedoCount,
-            );
+            refreshUndo();
             if (section !== "users") {
                 const next = initialPlaceholderDraft(section);
                 placeholderDraftRef.current = next;
@@ -861,11 +871,7 @@ function SectionContent({
             setIsMutationPending(false);
             // The deletion is journaled like any cell edit: re-read the stack so
             // «Отменить действие» lights up straight away.
-            void refreshUndoCounters(
-                () => getUndoState(section, reportMonth),
-                setUndoCount,
-                setRedoCount,
-            );
+            refreshUndo();
         }
     }
 
@@ -884,11 +890,7 @@ function SectionContent({
             toast.danger("Не удалось заменить значение", { description: errorMessage(reason) });
         } finally {
             setIsMutationPending(false);
-            void refreshUndoCounters(
-                () => getUndoState(section, reportMonth),
-                setUndoCount,
-                setRedoCount,
-            );
+            refreshUndo();
         }
     }
 
@@ -951,15 +953,10 @@ function SectionContent({
                 setPendingSkip,
                 refresh,
                 businessRuleFields: ["__created"],
-                refreshState: () =>
-                    void refreshUndoCounters(
-                        () => getUndoState(section, reportMonth),
-                        setUndoCount,
-                        setRedoCount,
-                    ),
+                refreshState: refreshUndo,
             });
         },
-        [refresh, reportMonth, section],
+        [refresh, refreshUndo],
     );
 
     const runUndo = useCallback(async () => {

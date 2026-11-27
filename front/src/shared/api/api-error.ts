@@ -106,6 +106,8 @@ export function fetchFailure(reason: unknown, fallback: string): ReportCollector
 /**
  * Parse a JSON response body once. A wrong content type, an empty/invalid body
  * or a non-object payload throws; no caller can mistake them for empty data.
+ * `allowScalar` opts in to the integer counts returned by the two grid PATCH
+ * endpoints — they are legitimate JSON, not a malformed object body.
  */
 export function parseJsonPayload<T>(
     text: string,
@@ -115,6 +117,7 @@ export function parseJsonPayload<T>(
         requestId?: string | null;
         fallback: string;
         allowNull?: boolean;
+        allowScalar?: boolean;
     },
 ): T {
     if (!isJsonContentType(options.contentType)) {
@@ -135,6 +138,7 @@ export function parseJsonPayload<T>(
         );
     }
     if (value === null && options.allowNull) return value as T;
+    if (options.allowScalar && value !== null && typeof value !== "object") return value as T;
     if (value === null || typeof value !== "object") {
         throw new ReportCollectorApiError(
             options.fallback,
@@ -146,7 +150,11 @@ export function parseJsonPayload<T>(
 }
 
 /** Read and validate a successful JSON response (204 is handled by the caller). */
-export async function readJsonBody<T>(response: Response, allowNull = false): Promise<T> {
+export async function readJsonBody<T>(
+    response: Response,
+    allowNull = false,
+    allowScalar = false,
+): Promise<T> {
     let text: string;
     try {
         text = await response.text();
@@ -159,6 +167,7 @@ export async function readJsonBody<T>(response: Response, allowNull = false): Pr
         requestId: response.headers.get("X-Request-ID"),
         fallback: `Некорректный ответ сервера (${response.status}).`,
         allowNull,
+        allowScalar,
     });
 }
 
@@ -182,6 +191,7 @@ export async function requestWrite<T>(
     path: string,
     method: "POST" | "PATCH" | "DELETE",
     body?: unknown,
+    options?: { allowScalar?: boolean },
 ): Promise<T> {
     const init: RequestInit = { cache: "no-store", method };
     if (method !== "DELETE" && body !== undefined) {
@@ -195,5 +205,5 @@ export async function requestWrite<T>(
     if (response.status === 204) {
         return undefined as T;
     }
-    return readJsonBody<T>(response);
+    return readJsonBody<T>(response, false, options?.allowScalar === true);
 }

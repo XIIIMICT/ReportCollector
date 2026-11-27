@@ -70,6 +70,25 @@ test.each(["POST", "PATCH", "DELETE"] as const)(
     },
 );
 
+test("count-returning writes accept a JSON scalar without loosening the strict default", async () => {
+    globalThis.fetch = Object.assign(async () => jsonResponse(1), {
+        preconnect: originalFetch.preconnect,
+    });
+    expect(await requestWrite<number>("/api/test", "PATCH", {}, { allowScalar: true })).toBe(1);
+    await expect(requestWrite("/api/test", "PATCH", {})).rejects.toBeInstanceOf(
+        ReportCollectorApiError,
+    );
+
+    // Opting in to scalars does not accept a wrong content type.
+    globalThis.fetch = Object.assign(
+        async () => new Response("1", { headers: { "Content-Type": "text/plain" } }),
+        { preconnect: originalFetch.preconnect },
+    );
+    await expect(
+        requestWrite("/api/test", "PATCH", {}, { allowScalar: true }),
+    ).rejects.toBeInstanceOf(ReportCollectorApiError);
+});
+
 test("non-JSON gateway errors retain their HTTP status", async () => {
     globalThis.fetch = Object.assign(async () => new Response("bad gateway", { status: 502 }), {
         preconnect: originalFetch.preconnect,
