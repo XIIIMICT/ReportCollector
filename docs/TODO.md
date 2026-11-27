@@ -203,6 +203,20 @@ different milestones. Do not reopen the explicit product deferrals below.
   purpose — exact commands/outputs in the deliverable report. Contract:
   `docs/RUNBOOKS.md`. OPEN: off-host copy (`BACKUP_OFFHOST_TARGET` empty by
   default, therefore NOT satisfied), RTO, PITR and central-stack scrape wiring.
+- [ ] **P1-9 — nightly heavy suite authored; first hosted night still OPEN
+  (2026-11-27).** `.github/workflows/nightly.yaml` (branch
+  `ci/nightly-heavy-suite`, no push/merge) runs daily 03:17 UTC plus
+  `workflow_dispatch`: full memory/valkey pytest matrix with combined 80%
+  coverage floor, locked-runtime `pip-audit` and `bun audit` plus freshness
+  reports, the existing gitleaks scan, production-image Playwright smoke and
+  the scaled-down k6 suite. It is not part of `CI required` and does not touch
+  `ci.yaml` or branch protection. OPEN: (a) merge/push and observe one real
+  scheduled night — a local tree cannot prove a night passed; (b) promote the
+  two new security scans from report-only to blocking only after a clean
+  baseline and owner approval (gitleaks is already a green gate); (c) decide
+  the CI-failure → Alertmanager/SMTP route with the maintainer — no repository
+  webhooks exist, exact missing wiring in `docs/WORKFLOW.md`, «Nightly heavy
+  suite»; (d) confirm the 7-day artifact retention is long enough for triage.
 - [ ] Add production target discovery, distinct environment labels, route
   p95/p99 recording rules and calibrated saturation, memory/CPU, restart-loop
   alerts. Restrict /metrics to the monitoring network in the deployment.
