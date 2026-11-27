@@ -495,7 +495,13 @@ def _peak_working_set_bytes() -> int | None:
         import resource
     except ImportError:
         return None
-    max_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss  # ty: ignore[missing-attribute]
+    # ``resource`` is POSIX-only. Introspect it so ty stays clean on both
+    # Windows and Linux without a version-specific ignore comment.
+    getrusage = getattr(resource, "getrusage", None)
+    if getrusage is None:
+        return None
+    rusage_self = getattr(resource, "RUSAGE_SELF", 0)
+    max_rss = getattr(getrusage(rusage_self), "ru_maxrss", 0)
     return int(max_rss) * 1024
 
 

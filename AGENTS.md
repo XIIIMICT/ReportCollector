@@ -47,7 +47,8 @@ for installation; never substitute an equivalent.** `python -m pytest` silently
 picks another interpreter (use `uv run pytest`); `npx` picks another resolver.
 
 - **Required:** `uv`, `bun`, `docker`, `git`, `just`.
-- Prefer `rg`; built-in `grep`/`glob`/`read` avoid shell quoting traps. `jq`/`yq`/`gh` are optional.
+- Prefer `rg`; built-in `grep`/`glob`/`read` avoid shell quoting traps. `jq`/`yq` are optional. Use `gh` to inspect GitHub Actions runs and failed logs (`gh run list`, `gh run view --log-failed`) instead of guessing CI state from local results.
+- If any of `uv`, `bun`, `rg` or `gh` is not installed, stop and ask the maintainer to install it; do not silently substitute a different tool or skip the check.
 - `.mcp.json` declares `heroui-react` (v3 docs), `next-devtools` (installed Next
   version) and `browsermcp` (the only supported way to drive the user's Chrome).
   All are launched with `bunx`. If a server is unavailable, say so and ask.
