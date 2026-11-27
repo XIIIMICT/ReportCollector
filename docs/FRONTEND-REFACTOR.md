@@ -100,25 +100,25 @@ rules). Call sites in `beforeEdit`/`beforeRangeEdit` and the header memos now
 delegate to them. All RevoGrid selection/geometry/clipboard invariants are
 untouched; unit tests cover empty data, boundaries and 217-column inputs.
 
-## End-to-end smoke (CI stack, 127.0.0.1:16000)
+## End-to-end smoke selection and verification (2026-11-27)
 
-`E2E_BASE_URL=http://127.0.0.1:16000 KEYCLOAK_ENABLED=false bun run test:e2e
---project=smoke --reporter=list`:
+The smoke suite is defined in `front/playwright.config.ts` — the single
+Playwright config, shared by local and CI runs. CI runs the browser smoke
+against its isolated production image at `E2E_BASE_URL=http://127.0.0.1:15000`;
+the local CI-like stand used for repeat runs is `http://127.0.0.1:16000`, both
+with `KEYCLOAK_ENABLED=false`. The separate `ui-keycloak` project needs an
+independently prepared IdP and is not started by CI.
 
-| Run | Result |
-|---|---|
-| Baseline (before the extractions) | 30 passed, 1 failed, 3 skipped |
-| Repeat run on the same CI stack | 30 passed, 1 failed, 3 skipped |
+`bunx --no-install playwright test --project=smoke --list` currently discovers
+44 tests in 10 spec files. CI checks the required spec basenames, not an exact
+count, so this number is a snapshot rather than a contract. The earlier runs in
+this section used a prebuilt production image and reported "30 passed / 1
+failed / 3 skipped"; that failure predates the refactor and those counts were
+never evidence for it, so they are removed rather than restated as current.
 
-The CI stack serves a **prebuilt production image**, so these two runs are an
-environment baseline, not a verification of the refactor; the refactor is
-verified separately against the dev stack (`:5000`, compose `--watch`).
-The single failure is identical in both runs and occurs before any refactoring:
-`raw-materials-ui.spec.ts:59` times out in `loginAsLocalUser` (`waitForURL`,
-30 s) on the CI stack. It is recorded as a pre-existing/environment issue, not
-a regression; no e2e assertion was weakened to hide it. No DOM/row-count
-performance numbers were captured yet — that needs a DevTools/Performance
-recording on a prepared stack.
+No browser DOM/row-count, FPS or latency baseline has been recorded on a
+prepared stack; no retroactive runtime-performance claim is made for the
+structural refactor stages above.
 
 ## Stage 8.1 — Tailwind breakpoints (done)
 

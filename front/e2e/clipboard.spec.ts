@@ -1,6 +1,7 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Request } from "@playwright/test";
 
 import { loginAsTestUser } from "./helpers/test-users";
+import { expectNoRequestsForGrace, PASTE_SETTLE_MS } from "./helpers/timing";
 
 const APP_ORIGIN = process.env.E2E_BASE_URL ?? "http://127.0.0.1:5000";
 
@@ -137,7 +138,8 @@ test("clipboard: Ctrl+C works with Russian keyboard layout", async ({ page, cont
 
     const firstCell = page.locator("revogr-data .rgCell:not(.report-row-header)").first();
     await firstCell.click();
-    await page.waitForTimeout(300);
+    // Web-first: the cell text may still be settling after the click.
+    await expect(firstCell).not.toBeEmpty();
     const expected = (await firstCell.innerText()).trim();
     expect(expected).not.toBe("");
     await page.evaluate(() => navigator.clipboard.writeText(""));
@@ -195,13 +197,23 @@ test("clipboard: reference fields paste validates values and rejects unknown", a
 
     // Невалидная вставка: один из активов отсутствует в справочнике → вся
     // вставка отклоняется, значение не меняется, показывается предупреждение.
+    const mutations: Request[] = [];
+    const recordMutation = (request: Request) => {
+        if (request.method() !== "GET" && request.url().includes("/api/raw-materials/")) {
+            mutations.push(request);
+        }
+    };
+    page.on("request", recordMutation);
     const before = await readAssets();
     await page.evaluate(() => navigator.clipboard.writeText("СНХЗ, НЕСУЩЕСТВУЮЩИЙ АКТИВ"));
     await page.keyboard.press("Control+V");
     await expect(
         page.getByText("значение «НЕСУЩЕСТВУЮЩИЙ АКТИВ» отсутствует в справочнике."),
     ).toBeVisible({ timeout: 10000 });
-    await page.waitForTimeout(800);
+    // The warning proves validation ran; the counter proves no write followed
+    // it. A sleep alone could not tell a late PATCH from a rejected paste.
+    await expectNoRequestsForGrace(page, mutations, () => true, PASTE_SETTLE_MS);
+    page.off("request", recordMutation);
     expect(await readAssets()).toBe(before);
 
     // Валидная вставка применяется: найдём строку, где набор активов — подмножество

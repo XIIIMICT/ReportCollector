@@ -28,7 +28,7 @@ Domain contracts — `docs/DOMAINS.md`; collaboration protocol — `docs/COLLAB.
 |---|---|
 | Back tests | `uv run --directory back pytest -q` |
 | Front unit tests | `bun run --cwd front test` |
-| e2e smoke (running stack required) | `bun run --cwd front test:e2e --project=smoke` (`E2E_BASE_URL`, `KEYCLOAK_ENABLED=false`); `--project=keycloak` needs the separately prepared stack |
+| e2e smoke (running stack required) | `bun run --cwd front test:e2e --project=smoke` (`E2E_BASE_URL`, `KEYCLOAK_ENABLED=false`); `--project=ui-keycloak` needs the separately prepared stack |
 | Back lint/format/type | `uv run --directory back ruff check --fix` · `ruff format` · `ty check --fix` |
 | Front lint/format/type | `bun run --cwd front lint` · `format` · `typecheck` |
 | Everything at once | `just lint` · `just typecheck` · `just test` · `just e2e` |

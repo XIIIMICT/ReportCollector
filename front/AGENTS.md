@@ -65,6 +65,10 @@ live in `back/AGENTS.md`; contracts in `docs/API.md`, `docs/COLLAB.md`,
   does not read `.env` files: export the env var in the shell. The isolated seed
   creates those users and the deterministic archive/work-code fixtures only with
   `RC_SEED_E2E_FIXTURES=1` (never on prod or with Keycloak enabled).
+- There is ONE Playwright config: `front/playwright.config.ts` is used by both
+  local and CI runs (there is no separate local config). It owns `testIgnore`,
+  the `smoke` / `ui-keycloak` project names and the smoke spec selection; CI's
+  discovery guard checks the same 10 spec basenames. Keep both lists in sync.
 - From `front/`, `bunx --no-install playwright test --project=smoke --list`
   discovers the smoke suite without a running stack; CI logs it and fails if a
   required spec disappears. It is not a substitute for running the suite.

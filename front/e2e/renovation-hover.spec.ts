@@ -22,10 +22,9 @@ async function switchToRenovation(page: import("@playwright/test").Page) {
     await expect(switcher).toBeVisible();
     if (!(await switcher.innerText()).includes("Ремонт")) {
         await switcher.click();
-        await expect(page.locator("[data-slot=dropdown-menu]")).toBeVisible();
-        await page
-            .locator("[data-slot=dropdown-menu] [data-slot=menu-item]", { hasText: "Ремонт" })
-            .click();
+        const menu = page.locator("[data-slot=dropdown-menu]");
+        await expect(menu).toBeVisible();
+        await menu.getByRole("menuitemradio", { name: "Ремонт", exact: true }).click();
     }
     await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 40000 });
 }
@@ -35,7 +34,6 @@ test("version autocomplete: hover opens, stays open moving within, closes after 
 }) => {
     await login(page);
     await switchToRenovation(page);
-    await page.waitForTimeout(1000);
 
     // The isolated seed provisions an archived plan version, so the picker is
     // always present here — assert it rather than skipping when it is absent.
@@ -53,6 +51,8 @@ test("version autocomplete: hover opens, stays open moving within, closes after 
     await expect(trigger).toHaveAttribute("aria-expanded", "true", { timeout: 5000 });
 
     // Must STAY open while moving within the component (10 scattered moves).
+    // These are flicker samples: an open→close cycle between two checks has no
+    // DOM event of its own, so the pointer keeps moving and we sample state.
     for (let i = 0; i < 10; i++) {
         const ox = cx + ((i % 3) - 1) * 4;
         const oy = cy + (((i + 1) % 3) - 1) * 3;
@@ -60,7 +60,7 @@ test("version autocomplete: hover opens, stays open moving within, closes after 
         await page.waitForTimeout(100);
         expect(await trigger.getAttribute("aria-expanded"), `closed at move ${i}`).toBe("true");
     }
-    // And stays open while the pointer rests (no flicker).
+    // And stays open while the pointer rests (no flicker) — same reason.
     const samples: boolean[] = [];
     for (let i = 0; i < 20; i++) {
         samples.push((await trigger.getAttribute("aria-expanded")) === "true");
@@ -82,7 +82,11 @@ test("action-bar kbd hint appears in the viewport without a page scrollbar", asy
     // body, flashing a stray page scrollbar).
     await login(page);
     await switchToRenovation(page);
-    await page.waitForTimeout(1000);
+
+    // The hint trigger is the web-first boundary for the toolbar layout; no
+    // fixed post-switch sleep before measuring the scrollbar geometry.
+    const copy = page.locator('.action-bar [data-action-tooltip="Копировать"]').first();
+    await expect(copy).toBeVisible({ timeout: 15000 });
 
     const before = await page.evaluate(() => ({
         scrollWidth: document.documentElement.scrollWidth,
@@ -91,7 +95,6 @@ test("action-bar kbd hint appears in the viewport without a page scrollbar", asy
         clientHeight: document.documentElement.clientHeight,
     }));
 
-    const copy = page.locator('.action-bar [data-action-tooltip="Копировать"]').first();
     const box = await copy.boundingBox();
     expect(box).not.toBeNull();
     await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);

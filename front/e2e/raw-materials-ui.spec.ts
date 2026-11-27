@@ -1,24 +1,28 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { loginAsTestUser, TEST_USERS } from "./helpers/test-users";
+import { expectStableForGrace, GRID_SETTLE_MS } from "./helpers/timing";
 
-const MENU_ITEMS = "[data-slot=dropdown-menu] [data-slot=menu-item]";
+const projectMenu = (page: Page) => page.locator("[data-slot=dropdown-menu]");
+const projectSwitcher = (page: Page) =>
+    page.getByRole("button", { name: /^Проект: .+\. Выберите проект$/ });
 
 /** Open the brand project menu via keyboard (no pointer-grace close timer). */
 async function switchProject(page: Page, name: string): Promise<void> {
-    const menu = page.locator("[data-slot=dropdown-menu]");
+    const menu = projectMenu(page);
     if (await menu.isVisible()) {
         await page.keyboard.press("Escape");
         await expect(menu).toHaveCount(0, { timeout: 5000 });
     }
-    const switcher = page.locator(".brand__edition--button");
+    const switcher = projectSwitcher(page);
     await switcher.focus();
     await switcher.press("Enter");
     await expect(menu).toBeVisible({ timeout: 10000 });
-    const item = page.locator(MENU_ITEMS).filter({ hasText: name });
+    // HeroUI's single-selection Dropdown.Item is a menuitemradio, not menuitem.
+    const item = menu.getByRole("menuitemradio", { name, exact: true });
     await expect(item).toBeVisible({ timeout: 10000 });
     await item.click();
-    await expect(page.locator(".brand__edition--button")).toContainText(name);
+    await expect(projectSwitcher(page)).toContainText(name);
 }
 
 test("evtushenko: raw-materials workspace shows movement, prices and dictionaries", async ({
@@ -26,12 +30,8 @@ test("evtushenko: raw-materials workspace shows movement, prices and dictionarie
 }) => {
     await loginAsTestUser(page, "admin");
     // The workspace defaults to «Ремонт»; this spec runs on «Сырьё» forms.
-    const switcher = page.locator(".brand__edition--button");
-    await expect(switcher).toBeVisible({ timeout: 20000 });
-    await switcher.click();
-    await page
-        .locator("[data-slot=dropdown-menu] [data-slot=menu-item]", { hasText: "Сырьё" })
-        .click();
+    await expect(projectSwitcher(page)).toBeVisible({ timeout: 20000 });
+    await switchProject(page, "Сырьё");
     await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 20000 });
 
     // Сид: справочники + связки актив-сырьё, цены и движения генерируются из связок.
@@ -79,9 +79,9 @@ test("project switcher exposes both projects", async ({ page }) => {
     await switchProject(page, "Сырьё");
     await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 15000 });
 
-    const menu = page.locator("[data-slot=dropdown-menu]");
-    const switcher = page.locator(".brand__edition--button");
+    const menu = projectMenu(page);
     if (!(await menu.isVisible())) {
+        const switcher = projectSwitcher(page);
         await switcher.focus();
         await switcher.press("Enter");
     }
@@ -118,10 +118,36 @@ test("dictionary asset can be created and deleted", async ({ page }) => {
             { timeout: 15000 },
         )
         .toBe(true);
-    await placeholder.dblclick();
+    // Target the draft by its stable fake id, not by a rendered cell: a refresh
+    // arriving between click and commit can leave the editor attached to a real
+    // row at the same virtual index (which then PATCHes instead of creating).
+    const readPlaceholderIndex = () =>
+        page.evaluate(async () => {
+            const grid = document.querySelector("revo-grid");
+            if (!grid) return -1;
+            const rows = await grid.getVisibleSource("rgRow");
+            return rows.findIndex((row) => row && row.id === "new:assets");
+        });
+    await expect.poll(readPlaceholderIndex, { timeout: 15000 }).toBeGreaterThanOrEqual(0);
+    const placeholderIndex = await readPlaceholderIndex();
+    await expectStableForGrace(
+        page,
+        async () => {
+            expect(await readPlaceholderIndex()).toBe(placeholderIndex);
+        },
+        GRID_SETTLE_MS,
+    );
+    await page.evaluate(async (index) => {
+        const grid = document.querySelector("revo-grid")!;
+        await grid.setCellEdit(index, "name");
+    }, placeholderIndex);
     const editor = page.locator("revogr-edit input, revogr-edit textarea").first();
     await expect(editor).toBeVisible({ timeout: 10000 });
+    // The editor mounts before it accepts input; filling it too early leaves
+    // the draft empty and Enter commits nothing (no POST at all).
+    await expect(editor).toBeFocused();
     await editor.fill(uniqueName);
+    await expect(editor).toHaveValue(uniqueName);
     const createResponse = page.waitForResponse(
         (response) =>
             response.request().method() === "POST" &&
@@ -183,12 +209,8 @@ test("evtushenko: undo/redo works on dictionaries (asset rename)", async ({ page
     await loginAsTestUser(page, "admin");
 
     // The workspace defaults to «Ремонт» — switch to «Сырьё» first.
-    const switcher = page.locator(".brand__edition--button");
-    await expect(switcher).toBeVisible();
-    await switcher.click();
-    await page
-        .locator("[data-slot=dropdown-menu] [data-slot=menu-item]", { hasText: "Сырьё" })
-        .click();
+    await expect(projectSwitcher(page)).toBeVisible();
+    await switchProject(page, "Сырьё");
     await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 15000 });
 
     await page.getByRole("tab", { name: "Активы" }).click();
@@ -225,6 +247,10 @@ test("evtushenko: undo/redo works on dictionaries (asset rename)", async ({ page
     await editor.fill(temporary);
     await editor.press("Enter");
     await expect.poll(() => readName(), { timeout: 15000 }).toBe(temporary);
+    // The source can update before the cell editor unmounts. While it is still
+    // mounted, Ctrl+Z belongs to the text editor, not the workspace undo
+    // shortcut — wait for the editor to close before sending the hotkey.
+    await expect(editor).toHaveCount(0, { timeout: 10000 });
 
     // Ctrl+Z отменяет правку справочника (через event.code — при любой раскладке).
     await page.keyboard.press("Control+z");
@@ -248,12 +274,8 @@ test("evtushenko: header shows fullname, profile modal works with theme + passwo
 
     // The workspace defaults to «Ремонт» — the header shows the active
     // project edition, so switch to «Сырьё» for the brand assertion.
-    const headerSwitcher = page.locator(".brand__edition--button");
-    await expect(headerSwitcher).toBeVisible();
-    await headerSwitcher.click();
-    await page
-        .locator("[data-slot=dropdown-menu] [data-slot=menu-item]", { hasText: "Сырьё" })
-        .click();
+    await expect(projectSwitcher(page)).toBeVisible();
+    await switchProject(page, "Сырьё");
     await expect(page.locator("revo-grid").first()).toBeVisible({ timeout: 15000 });
 
     // Header: brand with project edition, profile pill shows ФИО + email (not email twice)
@@ -273,8 +295,12 @@ test("evtushenko: header shows fullname, profile modal works with theme + passwo
     await expect(page.locator(".profile-modal")).toBeVisible({ timeout: 10000 });
 
     // Theme selector inside the modal (ToggleButtonGroup)
-    await expect(page.locator(".theme-selector")).toBeVisible();
-    await expect(page.locator('.theme-selector [aria-label="Тёмная тема"]')).toBeVisible();
+    const themeSelector = page.locator(".theme-selector");
+    await expect(themeSelector).toBeVisible();
+    await expect(
+        // ToggleButtonGroup with single selection exposes its options as radios.
+        themeSelector.getByRole("radio", { name: "Тёмная тема", exact: true }),
+    ).toBeVisible();
 
     // ФИО and email displayed (read-only)
     await expect(page.locator(".profile-modal input").first()).toHaveValue(
@@ -297,14 +323,20 @@ test("evtushenko: header shows fullname, profile modal works with theme + passwo
         // Mismatched passwords show validation error
         await passwordInputs.nth(0).fill("NewPass123");
         await passwordInputs.nth(1).fill("Different456");
-        await page.locator(".profile-modal button", { hasText: "Сохранить" }).click();
+        await page
+            .getByRole("dialog")
+            .getByRole("button", { name: "Сохранить", exact: true })
+            .click();
         await expect(page.locator(".profile-modal .form-error")).toContainText(
             "Введённые пароли не совпадают.",
         );
 
         // Matching passwords open the confirmation AlertDialog
         await passwordInputs.nth(1).fill("NewPass123");
-        await page.locator(".profile-modal button", { hasText: "Сохранить" }).click();
+        await page
+            .getByRole("dialog")
+            .getByRole("button", { name: "Сохранить", exact: true })
+            .click();
         await expect(page.getByRole("alertdialog")).toBeVisible({ timeout: 10000 });
         await expect(page.getByRole("alertdialog")).toContainText("Сохранить новый пароль?");
 
@@ -315,7 +347,7 @@ test("evtushenko: header shows fullname, profile modal works with theme + passwo
     }
 
     // Logout flow
-    await page.locator(".profile-modal button", { hasText: "Выйти" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Выйти", exact: true }).click();
     await expect(page.getByRole("alertdialog")).toBeVisible({ timeout: 10000 });
     await expect(page.getByRole("alertdialog")).toContainText("Выйти из приложения?");
     await page.getByRole("alertdialog").getByRole("button", { name: "Выйти" }).last().click();
